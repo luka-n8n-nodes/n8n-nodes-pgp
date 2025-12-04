@@ -40,20 +40,22 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
+          cache: 'pnpm'
           always-auth: true
 
-      - name: Update npm version
-        run: npm install -g npm@latest
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.1.4
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install
 
       - name: Run linting
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Build project
-        run: npm run build --if-present
+        run: pnpm run build --if-present
 
       - name: Configure Git user
         run: |
@@ -63,11 +65,11 @@ jobs:
       - name: Update version (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version)
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-          git add package.json package-lock.json
-          git commit -m "chore: bump version to $NEW_VERSION"
-          git tag $NEW_VERSION
+          NEW_VERSION=$(pnpm version ${{ github.event.inputs.version_type }} --no-git-tag-version | sed 's/v//')
+          echo "NEW_VERSION=v$NEW_VERSION" >> $GITHUB_ENV
+          git add package.json pnpm-lock.yaml
+          git commit -m "chore: bump version to v$NEW_VERSION"
+          git tag v$NEW_VERSION
           git push origin HEAD --follow-tags
 
       - name: Get version (tag trigger)
@@ -86,7 +88,7 @@ jobs:
 
       - name: Publish to NPM (with provenance)
         run: |
-          npm publish --provenance --access public
+          pnpm publish --provenance --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
