@@ -26,7 +26,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/hapheus/n8n-nodes-pgp.git"
+    "url": "https://github.com/luka-n8n-nodes/n8n-nodes-pgp.git"
   },
   "engines": {
     "node": ">=18.10",
