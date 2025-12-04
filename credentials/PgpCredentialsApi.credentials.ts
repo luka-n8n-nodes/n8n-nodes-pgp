@@ -21,9 +21,8 @@ export class PgpCredentialsApi implements ICredentialType {
             displayName: 'Public Key',
             name: 'public_key',
             type: 'string',
-            // eslint-disable-next-line n8n-nodes-base/cred-class-field-type-options-password-missing
             typeOptions: {
-                rows: 5,
+                password: true,
             },
             default: '',
             required: false,
@@ -32,9 +31,8 @@ export class PgpCredentialsApi implements ICredentialType {
             displayName: 'Private Key',
             name: 'private_key',
             type: 'string',
-            // eslint-disable-next-line n8n-nodes-base/cred-class-field-type-options-password-missing
             typeOptions: {
-                rows: 5,
+                password: true,
             },
             default: '',
             required: false,
