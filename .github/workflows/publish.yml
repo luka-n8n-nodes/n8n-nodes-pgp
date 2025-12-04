@@ -1,0 +1,247 @@
+name: Auto Publish to NPM and GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+permissions:
+  id-token: write  # Required for OIDC
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          always-auth: true
+
+      - name: Update npm version
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Build project
+        run: npm run build --if-present
+
+      - name: Configure Git user
+        run: |
+          git config --local user.email "luka.cat.mimi@gmail.com"
+          git config --local user.name "luka"
+
+      - name: Update version (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $NEW_VERSION"
+          git tag $NEW_VERSION
+          git push origin HEAD --follow-tags
+
+      - name: Get version (tag trigger)
+        if: github.event_name == 'push'
+        run: |
+          echo "NEW_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Verify build artifacts
+        run: |
+          echo "Check dist directory contents:"
+          ls -la dist/
+          echo "Check if main files exist:"
+          test -f dist/nodes/PgpNode/PgpNode.node.js && echo "✅ PgpNode.node.js exists"
+          test -f dist/credentials/PgpCredentialsApi.credentials.js && echo "✅ PgpCredentialsApi.credentials.js exists"
+          test -f dist/package.json && echo "✅ dist/package.json exists"
+
+      - name: Publish to NPM (with provenance)
+        run: |
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            # If CHANGELOG.md exists, try to extract changelog content for current version
+            CHANGELOG=$(sed -n "/## \[${{ env.NEW_VERSION }}\]/,/## \[/p" CHANGELOG.md | head -n -1)
+            if [ -z "$CHANGELOG" ]; then
+              # If changelog for corresponding version not found, generate changelog based on git commits
+              CHANGELOG=$(cat << 'EOL'
+          🎉 Version ${{ env.NEW_VERSION }} Released
+
+          ### 📝 This Update
+          EOL
+              )
+
+              # Get previous tag
+              LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+              if [ -n "$LAST_TAG" ]; then
+                echo "Changes from tag $LAST_TAG to current version:" >> temp_changelog.txt
+                echo "" >> temp_changelog.txt
+
+                # Get commit history and categorize
+                git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | while read -r commit_msg; do
+                  case "$commit_msg" in
+                    feat*|feature*) echo "- ✨ $commit_msg" >> temp_changelog.txt ;;
+                    fix*|bugfix*) echo "- 🐛 $commit_msg" >> temp_changelog.txt ;;
+                    docs*) echo "- 📚 $commit_msg" >> temp_changelog.txt ;;
+                    style*) echo "- 💄 $commit_msg" >> temp_changelog.txt ;;
+                    refactor*) echo "- ♻️ $commit_msg" >> temp_changelog.txt ;;
+                    test*) echo "- ✅ $commit_msg" >> temp_changelog.txt ;;
+                    chore*) echo "- 🔧 $commit_msg" >> temp_changelog.txt ;;
+                    *) echo "- 📦 $commit_msg" >> temp_changelog.txt ;;
+                  esac
+                done
+
+                if [ -s temp_changelog.txt ]; then
+                  CHANGELOG="$CHANGELOG
+          $(cat temp_changelog.txt)"
+                  rm -f temp_changelog.txt
+                fi
+              else
+                # If first release, show first release information
+                CHANGELOG="$CHANGELOG
+          - 🎉 First release of PGP N8N node plugin
+          - ✨ Full support for OpenPGP encryption and signing features
+          - 📦 Support core features like encryption, decryption, signing, and verification"
+              fi
+
+              CHANGELOG="$CHANGELOG
+
+          ### 📦 Installation
+
+          \`\`\`bash
+          npm install @luka-cat-mimi/n8n-nodes-pgp
+          \`\`\`
+
+          ### 🔗 Links
+
+          - [📖 Documentation](https://github.com/luka-n8n-nodes/n8n-nodes-pgp#readme)
+          - [📦 NPM Package](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp)
+          - [🐛 Issue Tracker](https://github.com/luka-n8n-nodes/n8n-nodes-pgp/issues)"
+            fi
+          else
+            # If CHANGELOG.md does not exist, generate changelog based on git commits
+            CHANGELOG="🎉 Version ${{ env.NEW_VERSION }} Released
+
+          ### 📝 This Update"
+
+            # Get previous tag
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+            if [ -n "$LAST_TAG" ]; then
+              echo "Detected previous version: $LAST_TAG"
+
+              # Get commit history and categorize
+              HAS_CHANGES=false
+              while read -r commit_msg; do
+                if [ -n "$commit_msg" ]; then
+                  HAS_CHANGES=true
+                  case "$commit_msg" in
+                    feat*|feature*) CHANGELOG="$CHANGELOG
+          - ✨ $commit_msg" ;;
+                    fix*|bugfix*) CHANGELOG="$CHANGELOG
+          - 🐛 $commit_msg" ;;
+                    docs*) CHANGELOG="$CHANGELOG
+          - 📚 $commit_msg" ;;
+                    style*) CHANGELOG="$CHANGELOG
+          - 💄 $commit_msg" ;;
+                    refactor*) CHANGELOG="$CHANGELOG
+          - ♻️ $commit_msg" ;;
+                    test*) CHANGELOG="$CHANGELOG
+          - ✅ $commit_msg" ;;
+                    chore*) CHANGELOG="$CHANGELOG
+          - 🔧 $commit_msg" ;;
+                    *) CHANGELOG="$CHANGELOG
+          - 📦 $commit_msg" ;;
+                  esac
+                fi
+              done << EOF
+          $(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges)
+          EOF
+
+              if [ "$HAS_CHANGES" = false ]; then
+                CHANGELOG="$CHANGELOG
+          - 🔧 Version maintenance update"
+              fi
+            else
+              # First release
+              CHANGELOG="$CHANGELOG
+          - 🎉 First release of PGP N8N node plugin
+          - ✨ Full support for OpenPGP encryption and signing features
+          - 📦 Support core features like encryption, decryption, signing, and verification
+          - ✅ Support encryption processing for text and binary files
+          - 🔧 Complete TypeScript type support
+          - 🔐 Support embedded signatures and detached signatures"
+            fi
+
+            CHANGELOG="$CHANGELOG
+
+          ### 📦 Installation
+
+          \`\`\`bash
+          npm install @luka-cat-mimi/n8n-nodes-pgp
+          \`\`\`
+
+          ### 🔗 Links
+
+          - [📖 Documentation](https://github.com/luka-n8n-nodes/n8n-nodes-pgp#readme)
+          - [📦 NPM Package](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp)
+          - [🐛 Issue Tracker](https://github.com/luka-n8n-nodes/n8n-nodes-pgp/issues)"
+          fi
+
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.NEW_VERSION }}
+          name: ${{ env.NEW_VERSION }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish success notification
+        run: |
+          echo "🎉 Publish successful!"
+          echo "📦 NPM Package: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp"
+          echo "🚀 GitHub Release: https://github.com/luka-n8n-nodes/n8n-nodes-pgp/releases/tag/${{ env.NEW_VERSION }}"
+          echo "📋 Install command: npm install @luka-cat-mimi/n8n-nodes-pgp"

@@ -1,0 +1,100 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Check code formatting
+        run: npm run format -- --check
+
+      - name: Build project
+        run: npm run build
+
+      - name: Check build artifacts
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed: dist directory does not exist"
+            exit 1
+          fi
+          if [ ! -f "dist/nodes/PgpNode/PgpNode.node.js" ]; then
+            echo "❌ Build failed: main node file does not exist"
+            exit 1
+          fi
+          if [ ! -f "dist/credentials/PgpCredentialsApi.credentials.js" ]; then
+            echo "❌ Build failed: credentials file does not exist"
+            exit 1
+          fi
+          echo "✅ Build successful, all required files have been generated"
+
+  validate-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate package.json
+        run: |
+          npm run build
+          npm pack --dry-run
+          echo "✅ Package validation passed"
+
+      - name: Check n8n node configuration
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const fs = require('fs');
+
+            // Check n8n configuration
+            if (!pkg.n8n) {
+              console.error('❌ Missing n8n configuration');
+              process.exit(1);
+            }
+
+            // Check credentials file
+            const credFile = pkg.n8n.credentials[0];
+            if (!fs.existsSync(credFile)) {
+              console.error('❌ Credentials file does not exist:', credFile);
+              process.exit(1);
+            }
+
+            // Check node file
+            const nodeFile = pkg.n8n.nodes[0];
+            if (!fs.existsSync(nodeFile)) {
+              console.error('❌ Node file does not exist:', nodeFile);
+              process.exit(1);
+            }
+
+            console.log('✅ n8n node configuration validation passed');
+          "
