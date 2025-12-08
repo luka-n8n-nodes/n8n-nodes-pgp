@@ -21,9 +21,6 @@ export class PgpCredentialsApi implements ICredentialType {
             displayName: 'Public Key',
             name: 'public_key',
             type: 'string',
-            typeOptions: {
-                password: true,
-            },
             default: '',
             required: false,
         },
