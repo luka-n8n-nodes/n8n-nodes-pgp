@@ -24,7 +24,152 @@ import {
 import { BinaryUtils } from './utils/BinaryUtils';
 import { DataCompressor } from './utils/DataCompressor';
 
+/**
+ * Cleans and normalizes PGP armored format (keys, signatures, messages)
+ * Removes extra whitespace, normalizes line endings, and ensures proper format
+ * PGP armored format requires: header + blank line + data + footer
+ */
+function cleanArmoredKey(key: string): string {
+    if (!key) {
+        return key;
+    }
+    let cleaned = key.trim();
+    cleaned = cleaned.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    const pgpBlocks = [
+        { header: '-----BEGIN PGP PRIVATE KEY BLOCK-----', footer: '-----END PGP PRIVATE KEY BLOCK-----' },
+        { header: '-----BEGIN PGP PUBLIC KEY BLOCK-----', footer: '-----END PGP PUBLIC KEY BLOCK-----' },
+        { header: '-----BEGIN PGP SIGNATURE-----', footer: '-----END PGP SIGNATURE-----' },
+        { header: '-----BEGIN PGP MESSAGE-----', footer: '-----END PGP MESSAGE-----' },
+    ];
+
+    let header = '';
+    let footer = '';
+    let startIdx = -1;
+    let endIdx = -1;
+
+    for (const block of pgpBlocks) {
+        const headerPos = cleaned.indexOf(block.header);
+        if (headerPos !== -1) {
+            header = block.header;
+            footer = block.footer;
+            startIdx = headerPos;
+            const footerPos = cleaned.indexOf(block.footer, headerPos);
+            if (footerPos !== -1) {
+                endIdx = footerPos + block.footer.length;
+            }
+            break;
+        }
+    }
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        cleaned = cleaned.substring(startIdx, endIdx);
+    }
+
+    if (!header || !footer) {
+        return cleaned;
+    }
+    const headerEnd = cleaned.indexOf(header) + header.length;
+    const footerStart = cleaned.indexOf(footer);
+
+    if (headerEnd >= footerStart) {
+        return cleaned;
+    }
+
+    const dataPart = cleaned.substring(headerEnd, footerStart);
+    const normalizedData = dataPart.trim().replace(/\n{3,}/g, '\n\n');
+
+    return `${header}\n\n${normalizedData}\n${footer}\n`;
+}
+
+/**
+ * Validates and loads private key from credentials
+ */
+async function loadPrivateKey(
+    credentials: any,
+    getNode: () => any,
+): Promise<PrivateKey> {
+    if (!credentials.private_key || (credentials.private_key as string).trim() === '') {
+        throw new NodeOperationError(
+            getNode(),
+            'Private key is missing or empty. Please provide a valid private key in credentials.',
+        );
+    }
+
+    const cleanedPrivateKey = cleanArmoredKey(credentials.private_key as string);
+    if (!cleanedPrivateKey.includes('-----BEGIN PGP PRIVATE KEY BLOCK-----')) {
+        throw new NodeOperationError(
+            getNode(),
+            'Private key format is invalid. The key must start with "-----BEGIN PGP PRIVATE KEY BLOCK-----" and end with "-----END PGP PRIVATE KEY BLOCK-----".',
+        );
+    }
+
+    try {
+        if (credentials.passphrase) {
+            return await openpgp.decryptKey({
+                privateKey: await openpgp.readPrivateKey({
+                    armoredKey: cleanedPrivateKey,
+                }),
+                passphrase: credentials.passphrase as string,
+            });
+        } else {
+            return await openpgp.readPrivateKey({
+                armoredKey: cleanedPrivateKey,
+            });
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (credentials.passphrase) {
+            throw new NodeOperationError(
+                getNode(),
+                `Failed to decrypt private key. Please check: 1) Private key format is correct (should start with -----BEGIN PGP PRIVATE KEY BLOCK-----), 2) Passphrase is correct, 3) Private key and passphrase match. Error: ${errorMessage}`,
+            );
+        } else {
+            throw new NodeOperationError(
+                getNode(),
+                `Failed to read private key. Please check: 1) Private key format is correct (should start with -----BEGIN PGP PRIVATE KEY BLOCK-----), 2) Private key is not encrypted (if encrypted, provide passphrase). Error: ${errorMessage}`,
+            );
+        }
+    }
+}
+
+/**
+ * Validates and loads public key from credentials
+ */
+async function loadPublicKey(
+    credentials: any,
+    getNode: () => any,
+): Promise<Key> {
+    if (!credentials.public_key || (credentials.public_key as string).trim() === '') {
+        throw new NodeOperationError(
+            getNode(),
+            'Public key is missing or empty. Please provide a valid public key in credentials.',
+        );
+    }
+
+    const cleanedPublicKey = cleanArmoredKey(credentials.public_key as string);
+    if (!cleanedPublicKey.includes('-----BEGIN PGP PUBLIC KEY BLOCK-----')) {
+        throw new NodeOperationError(
+            getNode(),
+            'Public key format is invalid. The key must start with "-----BEGIN PGP PUBLIC KEY BLOCK-----" and end with "-----END PGP PUBLIC KEY BLOCK-----".',
+        );
+    }
+
+    try {
+        return await openpgp.readKey({
+            armoredKey: cleanedPublicKey,
+        });
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new NodeOperationError(
+            getNode(),
+            `Failed to read public key. Please check: 1) Public key format is correct (should start with -----BEGIN PGP PUBLIC KEY BLOCK-----), 2) Public key is complete and not corrupted. Error: ${errorMessage}`,
+        );
+    }
+}
+
+
 export class PgpNode implements INodeType {
+
     description: INodeTypeDescription = {
         displayName: 'PGP',
         name: 'pgpNode',
@@ -153,11 +298,11 @@ export class PgpNode implements INodeType {
                 type: 'string',
                 default: '',
                 placeholder: '-----BEGIN PGP SIGNATURE-----',
+                description: 'The PGP signature to verify. Required for verify operation.',
                 displayOptions: {
                     show: {
                         inputType: ['text'],
                         operation: ['verify', 'decrypt-and-verify'],
-                        embeddedSignature: [false],
                     },
                 },
             },
@@ -204,62 +349,26 @@ export class PgpNode implements INodeType {
     async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
         const items = this.getInputData();
 
-        let item: INodeExecutionData;
-        let operation: string;
-        let signature: string;
-        let inputType: string;
-        let message: string;
-        let binaryPropertyName: string;
-        let binaryPropertyNameSignature: string;
-        let compressionAlgorithm: string;
-        let embedSignature: boolean;
-        let embeddedSignature: boolean;
-
-        let credentials;
-        let priKey: PrivateKey;
-        let pubKey: Key;
-
-        credentials = await this.getCredentials('pgpCredentialsApi');
-
-        try {
-            if (credentials.passphrase) {
-                priKey = await openpgp.decryptKey({
-                    privateKey: await openpgp.readPrivateKey({
-                        armoredKey: (credentials.private_key as string).trim(),
-                    }),
-                    passphrase: credentials.passphrase as string,
-                });
-            } else {
-                priKey = await openpgp.readPrivateKey({
-                    armoredKey: (credentials.private_key as string).trim(),
-                });
-            }
-        } catch {
-            throw new NodeOperationError(this.getNode(), 'private key is not valid');
-        }
-
-        try {
-            pubKey = await openpgp.readKey({
-                armoredKey: (credentials.public_key as string).trim(),
-            });
-        } catch {
-            throw new NodeOperationError(this.getNode(), 'public key is not valid');
-        }
+        const credentials = await this.getCredentials('pgpCredentialsApi');
+        const priKey = await loadPrivateKey(credentials, () => this.getNode());
+        const pubKey = await loadPublicKey(credentials, () => this.getNode());
 
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
             try {
-                operation = this.getNodeParameter('operation', itemIndex) as string;
-                inputType = this.getNodeParameter('inputType', itemIndex) as string;
-                compressionAlgorithm = 'uncompressed';
-                embedSignature = false;
-                embeddedSignature = false;
+                const operation = this.getNodeParameter('operation', itemIndex) as string;
+                const inputType = this.getNodeParameter('inputType', itemIndex) as string;
+                let compressionAlgorithm = 'uncompressed';
+                let embedSignature = false;
+                let embeddedSignature = false;
+                let message: string;
+                let binaryPropertyName: string;
                 if (inputType === 'text') {
                     message = this.getNodeParameter('message', itemIndex) as string;
                     binaryPropertyName = '';
                 } else {
                     message = '';
                     binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
-                    if (operation === 'encrypt' || operation === 'decrypt') {
+                    if (['encrypt', 'decrypt', 'encrypt-and-sign', 'decrypt-and-verify'].includes(operation)) {
                         compressionAlgorithm = this.getNodeParameter('compressionAlgorithm', itemIndex) as string;
                     }
                 }
@@ -271,7 +380,7 @@ export class PgpNode implements INodeType {
                     embeddedSignature = this.getNodeParameter('embeddedSignature', itemIndex) as boolean;
                 }
 
-                item = items[itemIndex];
+                const item = items[itemIndex];
                 if (inputType === 'text') {
                     item.binary = {};
                 } else {
@@ -299,7 +408,6 @@ export class PgpNode implements INodeType {
                                 binaryDataEncrypt = DataCompressor.compress(binaryDataEncrypt, compressionAlgorithm);
                             }
                             const encryptedMessage = await encryptBinary(binaryDataEncrypt, pubKey);
-
                             item.binary = {
                                 message: {
                                     data: BinaryUtils.uint8ArrayToBase64(new TextEncoder().encode(encryptedMessage)),
@@ -342,7 +450,6 @@ export class PgpNode implements INodeType {
                                 );
 
                                 item.json = {};
-
                                 item.binary = {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(
@@ -364,7 +471,6 @@ export class PgpNode implements INodeType {
                                 const encryptedMessage = await encryptBinary(binaryDataEncryptAndSign, pubKey);
 
                                 item.json = {};
-
                                 item.binary = {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(
@@ -402,7 +508,7 @@ export class PgpNode implements INodeType {
                             if (compressionAlgorithm !== 'uncompressed') {
                                 try {
                                     decryptedMessage = DataCompressor.uncompress(
-                                        decryptedMessage,
+                                        decryptedMessage as Uint8Array,
                                         compressionAlgorithm,
                                     );
                                 } catch {
@@ -414,7 +520,6 @@ export class PgpNode implements INodeType {
                             }
 
                             item.json = {};
-
                             item.binary = {
                                 decrypted: {
                                     data: BinaryUtils.uint8ArrayToBase64(decryptedMessage as Uint8Array),
@@ -446,7 +551,7 @@ export class PgpNode implements INodeType {
                                     throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
                                 }
 
-                                signature = this.getNodeParameter('signature', itemIndex) as string;
+                                const signature = this.getNodeParameter('signature', itemIndex) as string;
                                 const isVerifiedDecryptAndVerify = await verifyText(decrypted, signature, pubKey);
 
                                 item.json = {
@@ -484,7 +589,6 @@ export class PgpNode implements INodeType {
                                 item.json = {
                                     verified: decryptedMessageResult.verified,
                                 };
-
                                 item.binary = {
                                     decrypted: {
                                         data: BinaryUtils.uint8ArrayToBase64(decryptedMessageResult.data),
@@ -505,7 +609,7 @@ export class PgpNode implements INodeType {
                                 if (compressionAlgorithm !== 'uncompressed') {
                                     try {
                                         decryptedMessage = DataCompressor.uncompress(
-                                            decryptedMessage,
+                                            decryptedMessage as Uint8Array,
                                             compressionAlgorithm,
                                         );
                                     } catch {
@@ -515,7 +619,7 @@ export class PgpNode implements INodeType {
                                         );
                                     }
                                 }
-                                binaryPropertyNameSignature = this.getNodeParameter(
+                                const binaryPropertyNameSignature = this.getNodeParameter(
                                     'binaryPropertyNameSignature',
                                     itemIndex,
                                 ) as string;
@@ -532,7 +636,6 @@ export class PgpNode implements INodeType {
                                 item.json = {
                                     verified: isVerifiedDecryptAndVerified,
                                 };
-
                                 item.binary = {
                                     decrypted: {
                                         data: BinaryUtils.uint8ArrayToBase64(decryptedMessage as Uint8Array),
@@ -555,7 +658,6 @@ export class PgpNode implements INodeType {
                             const signature = await signBinary(binaryDataSign, priKey);
 
                             item.json = {};
-
                             item.binary = {
                                 signature: {
                                     data: btoa(signature as string),
@@ -568,14 +670,36 @@ export class PgpNode implements INodeType {
                         break;
                     case 'verify':
                         if (inputType === 'text') {
-                            signature = this.getNodeParameter('signature', itemIndex) as string;
-                            const isVerified = await verifyText(message, signature, pubKey);
+                            let signature = this.getNodeParameter('signature', itemIndex) as string;
+                            // Validate signature
+                            if (!signature || signature.trim() === '') {
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    'Signature is missing or empty. Please provide a valid PGP signature.',
+                                );
+                            }
+                            let processedSignature = signature;
+                            if (signature.includes('\\n') && !signature.includes('\n')) {
+                                processedSignature = signature.replace(/\\n/g, '\n');
+                            }
+
+                            // Clean and normalize signature format
+                            const cleanedSignature = cleanArmoredKey(processedSignature);
+                            // Validate signature format
+                            if (!cleanedSignature.includes('-----BEGIN PGP SIGNATURE-----')) {
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    'Signature format is invalid. The signature must start with "-----BEGIN PGP SIGNATURE-----" and end with "-----END PGP SIGNATURE-----".',
+                                );
+                            }
+
+                            const isVerified = await verifyText(message, cleanedSignature, pubKey);
 
                             item.json = {
                                 verified: isVerified,
                             };
                         } else {
-                            binaryPropertyNameSignature = this.getNodeParameter(
+                            const binaryPropertyNameSignature = this.getNodeParameter(
                                 'binaryPropertyNameSignature',
                                 itemIndex,
                             ) as string;
