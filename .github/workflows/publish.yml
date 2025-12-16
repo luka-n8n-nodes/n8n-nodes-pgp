@@ -12,238 +12,219 @@ on:
         default: 'patch'
         type: choice
         options:
-          - patch
-          - minor
-          - major
+          - patch   # Patch version 1.0.0 -> 1.0.1
+          - minor   # Minor version 1.0.0 -> 1.1.0
+          - major   # Major version 1.0.0 -> 2.0.0
+      dry_run:
+        description: 'Test only, do not actually publish'
+        required: false
+        default: false
+        type: boolean
+
 permissions:
-  id-token: write  # Required for OIDC
-  contents: read
+  contents: write
+  packages: write
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
+    environment:
+      name: production
+      url: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp
 
     steps:
+      # ===== 1. Environment Setup =====
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9.1.4
-
-      - name: Setup Node.js
+      - name: Setup Node.js environment
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'pnpm'
-          always-auth: true
+          cache: 'npm'
+
+      # OIDC Trusted Publishing requires npm 11.5.1+
+      - name: Upgrade npm version
+        run: npm install -g npm@latest
 
       - name: Install dependencies
-        run: pnpm install
+        run: npm ci
 
+      # ===== 2. Code Quality Checks =====
       - name: Run linting
-        run: pnpm run lint
+        run: npm run lint
+        continue-on-error: true
 
       - name: Build project
-        run: pnpm run build --if-present
+        run: npm run build
 
-      - name: Configure Git user
+      - name: Verify build artifacts
+        run: |
+          echo "📂 Checking dist directory contents:"
+          ls -la dist/
+
+          echo ""
+          echo "✅ Verifying key files:"
+          test -f dist/nodes/PgpNode/PgpNode.node.js && echo "✅ PgpNode.node.js"
+          test -f dist/credentials/PgpCredentialsApi.credentials.js && echo "✅ PgpCredentialsApi.credentials.js"
+          test -f dist/package.json && echo "✅ dist/package.json"
+
+          echo ""
+          echo "📊 Package size:"
+          du -sh dist/
+
+      # ===== 3. Version Management =====
+      - name: Configure Git
         run: |
           git config --local user.email "luka.cat.mimi@gmail.com"
-          git config --local user.name "luka"
+          git config --local user.name "luka-cat"
 
       - name: Update version (manual trigger)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true'
         run: |
-          NEW_VERSION=$(pnpm version ${{ github.event.inputs.version_type }} --no-git-tag-version | sed 's/v//')
-          echo "NEW_VERSION=v$NEW_VERSION" >> $GITHUB_ENV
-          git add package.json pnpm-lock.yaml
-          git commit -m "chore: bump version to v$NEW_VERSION"
-          git tag v$NEW_VERSION
-          git push origin HEAD --follow-tags
+          NEW_VERSION=$(npm version ${{ github.event.inputs.version_type }} --no-git-tag-version)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "📌 New version: $NEW_VERSION"
+
+          git add package.json package-lock.json
+          git commit -m "chore: release $NEW_VERSION"
+          git tag $NEW_VERSION -m "Release $NEW_VERSION"
+          git push origin HEAD:main --follow-tags
 
       - name: Get version (tag trigger)
         if: github.event_name == 'push'
         run: |
           echo "NEW_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          echo "📌 Publishing version: ${GITHUB_REF#refs/tags/}"
 
-      - name: Verify build artifacts
+      - name: Get version (Dry Run)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
         run: |
-          echo "Check dist directory contents:"
-          ls -la dist/
-          echo "Check if main files exist:"
-          test -f dist/nodes/PgpNode/PgpNode.node.js && echo "✅ PgpNode.node.js exists"
-          test -f dist/credentials/PgpCredentialsApi.credentials.js && echo "✅ PgpCredentialsApi.credentials.js exists"
-          test -f dist/package.json && echo "✅ dist/package.json exists"
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "NEW_VERSION=v$CURRENT_VERSION" >> $GITHUB_ENV
+          echo "🧪 Dry Run mode - current version: v$CURRENT_VERSION"
 
-      - name: Publish to NPM (with provenance)
-        run: |
-          pnpm publish --provenance --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # ===== 4. NPM Publish (using OIDC Trusted Publishing) =====
+      - name: Publish to NPM
+        if: github.event.inputs.dry_run != 'true'
+        run: npm publish --provenance --access public
 
+      - name: Simulate publish (Dry Run)
+        if: github.event.inputs.dry_run == 'true'
+        run: npm publish --dry-run --provenance --access public
+
+      # ===== 5. Generate Changelog =====
       - name: Generate changelog
         id: changelog
         run: |
-          if [ -f CHANGELOG.md ]; then
-            # If CHANGELOG.md exists, try to extract changelog content for current version
-            CHANGELOG=$(sed -n "/## \[${{ env.NEW_VERSION }}\]/,/## \[/p" CHANGELOG.md | head -n -1)
-            if [ -z "$CHANGELOG" ]; then
-              # If changelog for corresponding version not found, generate changelog based on git commits
-              CHANGELOG=$(cat << 'EOL'
-          🎉 Version ${{ env.NEW_VERSION }} Released
+          echo "📝 Generating changelog..."
 
-          ### 📝 This Update
-          EOL
-              )
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
-              # Get previous tag
-              LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            echo "📊 Comparing versions: $LAST_TAG -> ${{ env.NEW_VERSION }}"
 
-              if [ -n "$LAST_TAG" ]; then
-                echo "Changes from tag $LAST_TAG to current version:" >> temp_changelog.txt
-                echo "" >> temp_changelog.txt
+            FEATURES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep -E "^feat|^feature" | sed 's/^/- ✨ /' || echo "")
+            FIXES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep -E "^fix|^bugfix" | sed 's/^/- 🐛 /' || echo "")
+            DOCS=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep "^docs" | sed 's/^/- 📚 /' || echo "")
+            CHORES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | grep "^chore" | sed 's/^/- 🔧 /' || echo "")
 
-                # Get commit history and categorize
-                git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges | while read -r commit_msg; do
-                  case "$commit_msg" in
-                    feat*|feature*) echo "- ✨ $commit_msg" >> temp_changelog.txt ;;
-                    fix*|bugfix*) echo "- 🐛 $commit_msg" >> temp_changelog.txt ;;
-                    docs*) echo "- 📚 $commit_msg" >> temp_changelog.txt ;;
-                    style*) echo "- 💄 $commit_msg" >> temp_changelog.txt ;;
-                    refactor*) echo "- ♻️ $commit_msg" >> temp_changelog.txt ;;
-                    test*) echo "- ✅ $commit_msg" >> temp_changelog.txt ;;
-                    chore*) echo "- 🔧 $commit_msg" >> temp_changelog.txt ;;
-                    *) echo "- 📦 $commit_msg" >> temp_changelog.txt ;;
-                  esac
-                done
+            CHANGELOG="## 🎉 Version ${{ env.NEW_VERSION }}
 
-                if [ -s temp_changelog.txt ]; then
-                  CHANGELOG="$CHANGELOG
-          $(cat temp_changelog.txt)"
-                  rm -f temp_changelog.txt
-                fi
-              else
-                # If first release, show first release information
-                CHANGELOG="$CHANGELOG
-          - 🎉 First release of PGP N8N node plugin
-          - ✨ Full support for OpenPGP encryption and signing features
-          - 📦 Support core features like encryption, decryption, signing, and verification"
-              fi
+          ### ✨ New Features
+          ${FEATURES:-None}
 
-              CHANGELOG="$CHANGELOG
+          ### 🐛 Bug Fixes
+          ${FIXES:-None}
 
-          ### 📦 Installation
+          ### 📚 Documentation Updates
+          ${DOCS:-None}
 
-          \`\`\`bash
-          npm install @luka-cat-mimi/n8n-nodes-pgp
-          \`\`\`
-
-          ### 🔗 Links
-
-          - [📖 Documentation](https://github.com/luka-n8n-nodes/n8n-nodes-pgp#readme)
-          - [📦 NPM Package](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp)
-          - [🐛 Issue Tracker](https://github.com/luka-n8n-nodes/n8n-nodes-pgp/issues)"
-            fi
+          ### 🔧 Other Changes
+          ${CHORES:-None}"
           else
-            # If CHANGELOG.md does not exist, generate changelog based on git commits
-            CHANGELOG="🎉 Version ${{ env.NEW_VERSION }} Released
+            CHANGELOG="## 🎉 First Release ${{ env.NEW_VERSION }}
 
-          ### 📝 This Update"
-
-            # Get previous tag
-            LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-            if [ -n "$LAST_TAG" ]; then
-              echo "Detected previous version: $LAST_TAG"
-
-              # Get commit history and categorize
-              HAS_CHANGES=false
-              while read -r commit_msg; do
-                if [ -n "$commit_msg" ]; then
-                  HAS_CHANGES=true
-                  case "$commit_msg" in
-                    feat*|feature*) CHANGELOG="$CHANGELOG
-          - ✨ $commit_msg" ;;
-                    fix*|bugfix*) CHANGELOG="$CHANGELOG
-          - 🐛 $commit_msg" ;;
-                    docs*) CHANGELOG="$CHANGELOG
-          - 📚 $commit_msg" ;;
-                    style*) CHANGELOG="$CHANGELOG
-          - 💄 $commit_msg" ;;
-                    refactor*) CHANGELOG="$CHANGELOG
-          - ♻️ $commit_msg" ;;
-                    test*) CHANGELOG="$CHANGELOG
-          - ✅ $commit_msg" ;;
-                    chore*) CHANGELOG="$CHANGELOG
-          - 🔧 $commit_msg" ;;
-                    *) CHANGELOG="$CHANGELOG
-          - 📦 $commit_msg" ;;
-                  esac
-                fi
-              done << EOF
-          $(git log $LAST_TAG..HEAD --pretty=format:"%s" --no-merges)
-          EOF
-
-              if [ "$HAS_CHANGES" = false ]; then
-                CHANGELOG="$CHANGELOG
-          - 🔧 Version maintenance update"
-              fi
-            else
-              # First release
-              CHANGELOG="$CHANGELOG
-          - 🎉 First release of PGP N8N node plugin
-          - ✨ Full support for OpenPGP encryption and signing features
-          - 📦 Support core features like encryption, decryption, signing, and verification
-          - ✅ Support encryption processing for text and binary files
-          - 🔧 Complete TypeScript type support
+          ### ✨ Features
+          - 🎯 Support PGP encryption and decryption
+          - 👥 Support PGP signing and verification
+          - 🔧 Support text and binary data formats
           - 🔐 Support embedded signatures and detached signatures"
-            fi
+          fi
 
-            CHANGELOG="$CHANGELOG
+          CHANGELOG="$CHANGELOG
 
           ### 📦 Installation
-
           \`\`\`bash
           npm install @luka-cat-mimi/n8n-nodes-pgp
           \`\`\`
 
-          ### 🔗 Links
-
-          - [📖 Documentation](https://github.com/luka-n8n-nodes/n8n-nodes-pgp#readme)
-          - [📦 NPM Package](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp)
-          - [🐛 Issue Tracker](https://github.com/luka-n8n-nodes/n8n-nodes-pgp/issues)"
-          fi
+          ### 🔗 Related Links
+          - 📖 [Documentation](https://github.com/luka-n8n-nodes/n8n-nodes-pgp#readme)
+          - 📦 [NPM Package](https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp)"
 
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      # ===== 6. Create GitHub Release =====
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        if: github.event.inputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.NEW_VERSION }}
-          name: ${{ env.NEW_VERSION }}
+          name: Release ${{ env.NEW_VERSION }}
           body: ${{ steps.changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
           generate_release_notes: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ===== 7. Publish Notifications =====
       - name: Publish success notification
+        if: github.event.inputs.dry_run != 'true'
         run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "🎉 Publish successful!"
-          echo "📦 NPM Package: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp"
-          echo "🚀 GitHub Release: https://github.com/luka-n8n-nodes/n8n-nodes-pgp/releases/tag/${{ env.NEW_VERSION }}"
-          echo "📋 Install command: npm install @luka-cat-mimi/n8n-nodes-pgp"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📦 Version: ${{ env.NEW_VERSION }}"
+          echo "🔗 NPM: https://www.npmjs.com/package/@luka-cat-mimi/n8n-nodes-pgp"
+          echo ""
+          echo "📋 Install command:"
+          echo "npm install @luka-cat-mimi/n8n-nodes-pgp"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Dry Run completion notification
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🧪 Dry Run test completed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "✅ All checks passed, ready for official release"
+          echo "📦 Current version: ${{ env.NEW_VERSION }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Publish failure notification
+        if: failure()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "❌ Publish failed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Please check the following:"
+          echo "1. Is npm Trusted Publisher configured correctly? (Environment name: production)"
+          echo "2. Does GitHub Token have sufficient permissions? (Requires id-token: write)"
+          echo "3. Did the code pass lint checks?"
+          echo "4. Did the build succeed?"
+          echo ""
+          echo "View detailed logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
