@@ -20,8 +20,8 @@ export class PgpCredentialsApi implements ICredentialType {
         {
             displayName: 'Public Key',
             name: 'public_key',
-            type: 'string',
             // eslint-disable-next-line n8n-nodes-base/cred-class-field-type-options-password-missing
+            type: 'string',
             default: '',
             required: false,
         },

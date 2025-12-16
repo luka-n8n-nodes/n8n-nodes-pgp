@@ -36,6 +36,7 @@ module.exports = {
 			rules: {
 				'n8n-nodes-base/cred-class-field-documentation-url-missing': 'off',
 				'n8n-nodes-base/cred-class-field-documentation-url-miscased': 'off',
+				'n8n-nodes-base/cred-class-field-type-options-password-missing': 'off',
 			},
 		},
 		{
