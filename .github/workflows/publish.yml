@@ -116,7 +116,10 @@ jobs:
 
       - name: Simulate publish (Dry Run)
         if: github.event.inputs.dry_run == 'true'
-        run: npm publish --dry-run --provenance --access public
+        run: |
+          echo "🧪 Dry Run: Simulating package creation..."
+          npm pack --dry-run
+          echo "✅ Dry Run: Package would be created successfully"
 
       # ===== 5. Generate Changelog =====
       - name: Generate changelog
