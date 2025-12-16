@@ -1,20 +1,40 @@
 import * as openpgp from 'openpgp';
 import { Key, PrivateKey } from 'openpgp';
 
-export async function encryptText(message: string, publicKey: Key): Promise<string> {
-    return (await openpgp.encrypt({
-        message: await openpgp.createMessage({ text: message }),
-        encryptionKeys: publicKey,
-        format: 'armored',
-    })) as string;
+export async function encryptText(message: string, publicKey: Key, outputFormat: 'armored' | 'binary' = 'armored'): Promise<string | Uint8Array> {
+    if (outputFormat === 'binary') {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ text: message }),
+            encryptionKeys: publicKey,
+            format: 'binary',
+        });
+        return encrypted as Uint8Array;
+    } else {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ text: message }),
+            encryptionKeys: publicKey,
+            format: 'armored',
+        });
+        return encrypted as string;
+    }
 }
 
-export async function encryptBinary(data: Uint8Array, publicKey: Key): Promise<string> {
-    return (await openpgp.encrypt({
-        message: await openpgp.createMessage({ binary: data }),
-        encryptionKeys: publicKey,
-        format: 'armored',
-    })) as string;
+export async function encryptBinary(data: Uint8Array, publicKey: Key, outputFormat: 'armored' | 'binary' = 'armored'): Promise<string | Uint8Array> {
+    if (outputFormat === 'binary') {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ binary: data }),
+            encryptionKeys: publicKey,
+            format: 'binary',
+        });
+        return encrypted as Uint8Array;
+    } else {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ binary: data }),
+            encryptionKeys: publicKey,
+            format: 'armored',
+        });
+        return encrypted as string;
+    }
 }
 
 export async function decryptText(message: string, privateKey: PrivateKey): Promise<string | false> {
@@ -26,33 +46,56 @@ export async function decryptText(message: string, privateKey: PrivateKey): Prom
         });
 
         return decrypted.data as string;
-    } catch {}
+    } catch { }
 
     return false;
 }
 
-export async function decryptBinary(message: string, privateKey: PrivateKey): Promise<Uint8Array | false> {
+export async function decryptBinary(message: string | Uint8Array, privateKey: PrivateKey): Promise<Uint8Array | false> {
     try {
-        const decrypted = await openpgp.decrypt({
-            message: await openpgp.readMessage({ armoredMessage: message }),
-            decryptionKeys: privateKey,
-            format: 'binary',
-        });
+        let decrypted;
+        if (message instanceof Uint8Array) {
+            const pgpMessage = await openpgp.readMessage({ binaryMessage: message });
+            decrypted = await openpgp.decrypt({
+                message: pgpMessage,
+                decryptionKeys: privateKey,
+                format: 'binary',
+            });
+        } else {
+            const messageStr = message as string;
+            if (messageStr.includes('-----BEGIN PGP')) {
+                const pgpMessage = await openpgp.readMessage({ armoredMessage: messageStr });
+                decrypted = await openpgp.decrypt({
+                    message: pgpMessage,
+                    decryptionKeys: privateKey,
+                    format: 'binary',
+                });
+            } else {
+                const binaryData = new TextEncoder().encode(messageStr);
+                const pgpMessage = await openpgp.readMessage({ binaryMessage: binaryData });
+                decrypted = await openpgp.decrypt({
+                    message: pgpMessage,
+                    decryptionKeys: privateKey,
+                    format: 'binary',
+                });
+            }
+        }
 
         return decrypted.data as Uint8Array;
-    } catch {}
+    } catch { }
 
     return false;
 }
 
 export async function signText(message: string, privateKey: PrivateKey): Promise<string> {
-    const pgpSignature = await openpgp.sign({
+    const signature = await openpgp.sign({
         message: await openpgp.createMessage({ text: message }),
         signingKeys: privateKey,
         detached: true,
+        format: 'armored',
     });
 
-    return pgpSignature as string;
+    return signature as string;
 }
 
 export async function signBinary(binaryData: Uint8Array, privateKey: PrivateKey): Promise<string> {
@@ -69,7 +112,7 @@ export async function signBinary(binaryData: Uint8Array, privateKey: PrivateKey)
 export async function verifyText(message: string, armoredSignature: string, publicKey: Key): Promise<boolean> {
     const verification = await openpgp.verify({
         message: await openpgp.createMessage({ text: message }),
-        signature: await openpgp.readSignature({ armoredSignature: armoredSignature }),
+        signature: await openpgp.readSignature({ armoredSignature }),
         verificationKeys: publicKey,
     });
     const { verified } = verification.signatures[0];
@@ -101,26 +144,50 @@ export async function encryptTextWithSignature(
     message: string,
     publicKey: Key,
     privateKey: PrivateKey,
-): Promise<string> {
-    return (await openpgp.encrypt({
-        message: await openpgp.createMessage({ text: message }),
-        encryptionKeys: publicKey,
-        signingKeys: privateKey,
-        format: 'armored',
-    })) as string;
+    outputFormat: 'armored' | 'binary' = 'armored',
+): Promise<string | Uint8Array> {
+    if (outputFormat === 'binary') {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ text: message }),
+            encryptionKeys: publicKey,
+            signingKeys: privateKey,
+            format: 'binary',
+        });
+        return encrypted as Uint8Array;
+    } else {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ text: message }),
+            encryptionKeys: publicKey,
+            signingKeys: privateKey,
+            format: 'armored',
+        });
+        return encrypted as string;
+    }
 }
 
 export async function encryptBinaryWithSignature(
     data: Uint8Array,
     publicKey: Key,
     privateKey: PrivateKey,
-): Promise<string> {
-    return (await openpgp.encrypt({
-        message: await openpgp.createMessage({ binary: data }),
-        encryptionKeys: publicKey,
-        signingKeys: privateKey,
-        format: 'armored',
-    })) as string;
+    outputFormat: 'armored' | 'binary' = 'armored',
+): Promise<string | Uint8Array> {
+    if (outputFormat === 'binary') {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ binary: data }),
+            encryptionKeys: publicKey,
+            signingKeys: privateKey,
+            format: 'binary',
+        });
+        return encrypted as Uint8Array;
+    } else {
+        const encrypted = await openpgp.encrypt({
+            message: await openpgp.createMessage({ binary: data }),
+            encryptionKeys: publicKey,
+            signingKeys: privateKey,
+            format: 'armored',
+        });
+        return encrypted as string;
+    }
 }
 
 export async function decryptTextWithVerification(
@@ -149,23 +216,47 @@ export async function decryptTextWithVerification(
         }
 
         return { data: data as string, verified };
-    } catch {}
+    } catch { }
 
     return false;
 }
 
 export async function decryptBinaryWithVerification(
-    message: string,
+    message: string | Uint8Array,
     privateKey: PrivateKey,
     publicKey: Key,
 ): Promise<{ data: Uint8Array; verified: boolean } | false> {
     try {
-        const decrypted = await openpgp.decrypt({
-            message: await openpgp.readMessage({ armoredMessage: message }),
-            decryptionKeys: privateKey,
-            verificationKeys: publicKey,
-            format: 'binary',
-        });
+        let decrypted;
+        if (message instanceof Uint8Array) {
+            const pgpMessage = await openpgp.readMessage({ binaryMessage: message });
+            decrypted = await openpgp.decrypt({
+                message: pgpMessage,
+                decryptionKeys: privateKey,
+                verificationKeys: publicKey,
+                format: 'binary',
+            });
+        } else {
+            const messageStr = message as string;
+            if (messageStr.includes('-----BEGIN PGP')) {
+                const pgpMessage = await openpgp.readMessage({ armoredMessage: messageStr });
+                decrypted = await openpgp.decrypt({
+                    message: pgpMessage,
+                    decryptionKeys: privateKey,
+                    verificationKeys: publicKey,
+                    format: 'binary',
+                });
+            } else {
+                const binaryData = new TextEncoder().encode(messageStr);
+                const pgpMessage = await openpgp.readMessage({ binaryMessage: binaryData });
+                decrypted = await openpgp.decrypt({
+                    message: pgpMessage,
+                    decryptionKeys: privateKey,
+                    verificationKeys: publicKey,
+                    format: 'binary',
+                });
+            }
+        }
 
         const { data, signatures } = decrypted;
         let verified = false;
@@ -180,7 +271,7 @@ export async function decryptBinaryWithVerification(
         }
 
         return { data: data as Uint8Array, verified };
-    } catch {}
+    } catch { }
 
     return false;
 }
