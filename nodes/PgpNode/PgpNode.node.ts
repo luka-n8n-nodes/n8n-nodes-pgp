@@ -567,9 +567,24 @@ export class PgpNode implements INodeType {
                         break;
                     case 'decrypt':
                         if (inputType === 'text') {
-                            const decrypted = await decryptText(message, priKey);
+                            let decrypted: string | false;
+                            try {
+                                decrypted = await decryptText(message, priKey);
+                            } catch (error) {
+                                const errorMessage = error instanceof Error ? error.message : String(error);
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    `Message could not be decrypted. ` +
+                                    `Input type: text, ` +
+                                    `Message length: ${message.length} characters, ` +
+                                    `Error: ${errorMessage}`,
+                                );
+                            }
                             if (decrypted === false) {
-                                throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    `Message could not be decrypted. Input type: text, Message length: ${message.length} characters`,
+                                );
                             }
 
                             item.json = {
@@ -577,30 +592,50 @@ export class PgpNode implements INodeType {
                             };
                         } else {
                             // Get binary data buffer (handles both Base64 and S3 storage)
-                            const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryData, meta, buffer } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
                             );
 
                             // Check if it's ASCII-armored format by looking at the first bytes
-                            const firstBytes = Array.from(binaryData.slice(0, 20))
-                                .map(b => String.fromCharCode(b))
-                                .join('');
-                            const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
+                            // Try to decode as UTF-8 string first to check for ASCII-armored format
+                            let isArmoredFormat = false;
+                            try {
+                                const textContent = buffer.toString('utf-8');
+                                isArmoredFormat = textContent.includes('-----BEGIN PGP');
+                            } catch {
+                                // If UTF-8 decoding fails, it's likely binary format
+                                isArmoredFormat = false;
+                            }
 
                             let decryptedMessage: Uint8Array | false;
-                            if (isArmoredFormat) {
-                                // Convert to string for ASCII-armored format
-                                const armoredString = new TextDecoder().decode(binaryData);
-                                decryptedMessage = await decryptBinary(armoredString, priKey);
-                            } else {
-                                // Use binary data directly
-                                decryptedMessage = await decryptBinary(binaryData, priKey);
+                            try {
+                                if (isArmoredFormat) {
+                                    // Convert to string for ASCII-armored format
+                                    const armoredString = buffer.toString('utf-8');
+                                    decryptedMessage = await decryptBinary(armoredString, priKey);
+                                } else {
+                                    // Use binary data directly
+                                    decryptedMessage = await decryptBinary(binaryData, priKey);
+                                }
+                            } catch (error) {
+                                const errorMessage = error instanceof Error ? error.message : String(error);
+                                const dataSize = binaryData.length;
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    `Message could not be decrypted. ` +
+                                    `Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, ` +
+                                    `Data size: ${dataSize} bytes, ` +
+                                    `Error: ${errorMessage}`,
+                                );
                             }
 
                             if (decryptedMessage === false) {
-                                throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                throw new NodeOperationError(
+                                    this.getNode(),
+                                    `Message could not be decrypted. Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, Data size: ${binaryData.length} bytes`,
+                                );
                             }
 
                             let isDecompressed = false;
@@ -635,9 +670,24 @@ export class PgpNode implements INodeType {
                     case 'decrypt-and-verify':
                         if (inputType === 'text') {
                             if (embeddedSignature) {
-                                const result = await decryptTextWithVerification(message, priKey, pubKey);
+                                let result: { data: string; verified: boolean } | false;
+                                try {
+                                    result = await decryptTextWithVerification(message, priKey, pubKey);
+                                } catch (error) {
+                                    const errorMessage = error instanceof Error ? error.message : String(error);
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. ` +
+                                        `Input type: text, ` +
+                                        `Message length: ${message.length} characters, ` +
+                                        `Error: ${errorMessage}`,
+                                    );
+                                }
                                 if (result === false) {
-                                    throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. Input type: text, Message length: ${message.length} characters`,
+                                    );
                                 }
 
                                 item.json = {
@@ -645,9 +695,24 @@ export class PgpNode implements INodeType {
                                     verified: result.verified,
                                 };
                             } else {
-                                const decrypted = await decryptText(message, priKey);
+                                let decrypted: string | false;
+                                try {
+                                    decrypted = await decryptText(message, priKey);
+                                } catch (error) {
+                                    const errorMessage = error instanceof Error ? error.message : String(error);
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. ` +
+                                        `Input type: text, ` +
+                                        `Message length: ${message.length} characters, ` +
+                                        `Error: ${errorMessage}`,
+                                    );
+                                }
                                 if (decrypted === false) {
-                                    throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. Input type: text, Message length: ${message.length} characters`,
+                                    );
                                 }
 
                                 const signature = this.getNodeParameter('signature', itemIndex) as string;
@@ -661,36 +726,54 @@ export class PgpNode implements INodeType {
                         } else {
                             if (embeddedSignature) {
                                 // Get binary data buffer (handles both Base64 and S3 storage)
-                                const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                                const { data: binaryData, meta, buffer } = await NodeUtils.getBinaryData.call(
                                     this,
                                     itemIndex,
                                     binaryPropertyName,
                                 );
 
                                 // Check if it's ASCII-armored format
-                                const firstBytes = Array.from(binaryData.slice(0, 20))
-                                    .map(b => String.fromCharCode(b))
-                                    .join('');
-                                const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
+                                let isArmoredFormat = false;
+                                try {
+                                    const textContent = buffer.toString('utf-8');
+                                    isArmoredFormat = textContent.includes('-----BEGIN PGP');
+                                } catch {
+                                    isArmoredFormat = false;
+                                }
 
                                 let decryptedMessageResult: { data: Uint8Array; verified: boolean } | false;
-                                if (isArmoredFormat) {
-                                    const armoredString = new TextDecoder().decode(binaryData);
-                                    decryptedMessageResult = await decryptBinaryWithVerification(
-                                        armoredString,
-                                        priKey,
-                                        pubKey,
-                                    );
-                                } else {
-                                    decryptedMessageResult = await decryptBinaryWithVerification(
-                                        binaryData,
-                                        priKey,
-                                        pubKey,
+                                try {
+                                    if (isArmoredFormat) {
+                                        const armoredString = buffer.toString('utf-8');
+                                        decryptedMessageResult = await decryptBinaryWithVerification(
+                                            armoredString,
+                                            priKey,
+                                            pubKey,
+                                        );
+                                    } else {
+                                        decryptedMessageResult = await decryptBinaryWithVerification(
+                                            binaryData,
+                                            priKey,
+                                            pubKey,
+                                        );
+                                    }
+                                } catch (error) {
+                                    const errorMessage = error instanceof Error ? error.message : String(error);
+                                    const dataSize = binaryData.length;
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. ` +
+                                        `Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, ` +
+                                        `Data size: ${dataSize} bytes, ` +
+                                        `Error: ${errorMessage}`,
                                     );
                                 }
 
                                 if (decryptedMessageResult === false) {
-                                    throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, Data size: ${binaryData.length} bytes`,
+                                    );
                                 }
 
                                 let isDecompressed = false;
@@ -724,28 +807,46 @@ export class PgpNode implements INodeType {
                                 };
                             } else {
                                 // Get binary data buffer (handles both Base64 and S3 storage)
-                                const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                                const { data: binaryData, meta, buffer } = await NodeUtils.getBinaryData.call(
                                     this,
                                     itemIndex,
                                     binaryPropertyName,
                                 );
 
                                 // Check if it's ASCII-armored format
-                                const firstBytes = Array.from(binaryData.slice(0, 20))
-                                    .map(b => String.fromCharCode(b))
-                                    .join('');
-                                const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
+                                let isArmoredFormat = false;
+                                try {
+                                    const textContent = buffer.toString('utf-8');
+                                    isArmoredFormat = textContent.includes('-----BEGIN PGP');
+                                } catch {
+                                    isArmoredFormat = false;
+                                }
 
                                 let decryptedMessage: Uint8Array | false;
-                                if (isArmoredFormat) {
-                                    const armoredString = new TextDecoder().decode(binaryData);
-                                    decryptedMessage = await decryptBinary(armoredString, priKey);
-                                } else {
-                                    decryptedMessage = await decryptBinary(binaryData, priKey);
+                                try {
+                                    if (isArmoredFormat) {
+                                        const armoredString = buffer.toString('utf-8');
+                                        decryptedMessage = await decryptBinary(armoredString, priKey);
+                                    } else {
+                                        decryptedMessage = await decryptBinary(binaryData, priKey);
+                                    }
+                                } catch (error) {
+                                    const errorMessage = error instanceof Error ? error.message : String(error);
+                                    const dataSize = binaryData.length;
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. ` +
+                                        `Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, ` +
+                                        `Data size: ${dataSize} bytes, ` +
+                                        `Error: ${errorMessage}`,
+                                    );
                                 }
 
                                 if (decryptedMessage === false) {
-                                    throw new NodeOperationError(this.getNode(), 'Message could not be decrypted');
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        `Message could not be decrypted. Format: ${isArmoredFormat ? 'ASCII-armored' : 'binary'}, Data size: ${binaryData.length} bytes`,
+                                    );
                                 }
 
                                 let isDecompressed = false;

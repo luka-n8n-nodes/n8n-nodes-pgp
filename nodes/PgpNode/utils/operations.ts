@@ -46,9 +46,13 @@ export async function decryptText(message: string, privateKey: PrivateKey): Prom
         });
 
         return decrypted.data as string;
-    } catch { }
-
-    return false;
+    } catch (error) {
+        // Store error for better debugging - will be caught and re-thrown with context
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorWithDetails = new Error(errorMessage);
+        (errorWithDetails as any).originalError = error;
+        throw errorWithDetails;
+    }
 }
 
 export async function decryptBinary(message: string | Uint8Array, privateKey: PrivateKey): Promise<Uint8Array | false> {
@@ -82,9 +86,13 @@ export async function decryptBinary(message: string | Uint8Array, privateKey: Pr
         }
 
         return decrypted.data as Uint8Array;
-    } catch { }
-
-    return false;
+    } catch (error) {
+        // Store error for better debugging - will be caught and re-thrown with context
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorWithDetails = new Error(errorMessage);
+        (errorWithDetails as any).originalError = error;
+        throw errorWithDetails;
+    }
 }
 
 export async function signText(message: string, privateKey: PrivateKey): Promise<string> {
@@ -216,9 +224,13 @@ export async function decryptTextWithVerification(
         }
 
         return { data: data as string, verified };
-    } catch { }
-
-    return false;
+    } catch (error) {
+        // Store error for better debugging - will be caught and re-thrown with context
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorWithDetails = new Error(errorMessage);
+        (errorWithDetails as any).originalError = error;
+        throw errorWithDetails;
+    }
 }
 
 export async function decryptBinaryWithVerification(
@@ -271,7 +283,11 @@ export async function decryptBinaryWithVerification(
         }
 
         return { data: data as Uint8Array, verified };
-    } catch { }
-
-    return false;
+    } catch (error) {
+        // Store error for better debugging - will be caught and re-thrown with context
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorWithDetails = new Error(errorMessage);
+        (errorWithDetails as any).originalError = error;
+        throw errorWithDetails;
+    }
 }
