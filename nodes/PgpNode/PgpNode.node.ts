@@ -23,6 +23,7 @@ import {
 } from './utils/operations';
 import { BinaryUtils } from './utils/BinaryUtils';
 import { DataCompressor } from './utils/DataCompressor';
+import NodeUtils from '../help/utils/NodeUtils';
 
 /**
  * Cleans and normalizes PGP armored format (keys, signatures, messages)
@@ -468,15 +469,19 @@ export class PgpNode implements INodeType {
                                 encrypted: await encryptText(message, pubKey, outputFormat),
                             };
                         } else {
-                            let binaryData = BinaryUtils.base64ToUint8Array(
-                                item.binary[binaryPropertyName].data,
+                            // Get binary data buffer (handles both Base64 and S3 storage)
+                            const { data: binaryDataArray, meta } = await NodeUtils.getBinaryData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyName,
                             );
-                            const originalFileName = item.binary[binaryPropertyName].fileName || 'encrypted';
+                            const originalFileName = meta.fileName || 'encrypted';
                             const isAlreadyCompressed = originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip');
                             if (compressionAlgorithm !== 'uncompressed' && !isAlreadyCompressed) {
-                                binaryData = DataCompressor.compress(binaryData, compressionAlgorithm, originalFileName);
+                                // @ts-expect-error - Type compatibility issue with ArrayBufferLike vs ArrayBuffer
+                                binaryDataArray = DataCompressor.compress(binaryDataArray, compressionAlgorithm, originalFileName);
                             }
-                            const encryptedMessage = await encryptBinary(binaryData, pubKey, outputFormat);
+                            const encryptedMessage = await encryptBinary(binaryDataArray, pubKey, outputFormat);
 
                             item.binary = {
                                 message: {
@@ -500,22 +505,26 @@ export class PgpNode implements INodeType {
                                 };
                             }
                         } else {
-                            let binaryDataEncryptAndSign = BinaryUtils.base64ToUint8Array(
-                                item.binary[binaryPropertyName].data,
+                            // Get binary data buffer (handles both Base64 and S3 storage)
+                            const { data: binaryDataEncryptAndSign, meta } = await NodeUtils.getBinaryData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyName,
                             );
-                            const originalFileName = item.binary[binaryPropertyName].fileName || 'encrypted';
+                            let binaryDataEncryptAndSignArray = binaryDataEncryptAndSign;
+                            const originalFileName = meta.fileName || 'encrypted';
                             const isAlreadyCompressed = originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip');
 
                             if (embedSignature) {
                                 if (compressionAlgorithm !== 'uncompressed' && !isAlreadyCompressed) {
-                                    binaryDataEncryptAndSign = DataCompressor.compress(
-                                        binaryDataEncryptAndSign,
+                                    binaryDataEncryptAndSignArray = DataCompressor.compress(
+                                        binaryDataEncryptAndSignArray,
                                         compressionAlgorithm,
                                         originalFileName,
                                     );
                                 }
                                 const encryptedMessage = await encryptBinaryWithSignature(
-                                    binaryDataEncryptAndSign,
+                                    binaryDataEncryptAndSignArray,
                                     pubKey,
                                     priKey,
                                     outputFormat,
@@ -529,15 +538,15 @@ export class PgpNode implements INodeType {
                                     },
                                 };
                             } else {
-                                const signature = await signBinary(binaryDataEncryptAndSign, priKey);
+                                const signature = await signBinary(binaryDataEncryptAndSignArray, priKey);
                                 if (compressionAlgorithm !== 'uncompressed' && !isAlreadyCompressed) {
-                                    binaryDataEncryptAndSign = DataCompressor.compress(
-                                        binaryDataEncryptAndSign,
+                                    binaryDataEncryptAndSignArray = DataCompressor.compress(
+                                        binaryDataEncryptAndSignArray,
                                         compressionAlgorithm,
                                         originalFileName,
                                     );
                                 }
-                                const encryptedMessage = await encryptBinary(binaryDataEncryptAndSign, pubKey, outputFormat);
+                                const encryptedMessage = await encryptBinary(binaryDataEncryptAndSignArray, pubKey, outputFormat);
 
                                 item.json = {};
                                 item.binary = {
@@ -567,15 +576,26 @@ export class PgpNode implements INodeType {
                                 decrypted: decrypted,
                             };
                         } else {
-                            const base64Data = item.binary[binaryPropertyName].data;
-                            const decodedString = atob(base64Data);
-                            const isArmoredFormat = decodedString.includes('-----BEGIN PGP');
+                            // Get binary data buffer (handles both Base64 and S3 storage)
+                            const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyName,
+                            );
+
+                            // Check if it's ASCII-armored format by looking at the first bytes
+                            const firstBytes = Array.from(binaryData.slice(0, 20))
+                                .map(b => String.fromCharCode(b))
+                                .join('');
+                            const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
 
                             let decryptedMessage: Uint8Array | false;
                             if (isArmoredFormat) {
-                                decryptedMessage = await decryptBinary(decodedString, priKey);
+                                // Convert to string for ASCII-armored format
+                                const armoredString = new TextDecoder().decode(binaryData);
+                                decryptedMessage = await decryptBinary(armoredString, priKey);
                             } else {
-                                const binaryData = BinaryUtils.base64ToUint8Array(base64Data);
+                                // Use binary data directly
                                 decryptedMessage = await decryptBinary(binaryData, priKey);
                             }
 
@@ -599,7 +619,7 @@ export class PgpNode implements INodeType {
                                 }
                             }
 
-                            const encryptedFileName = item.binary[binaryPropertyName]?.fileName;
+                            const encryptedFileName = meta.fileName;
                             item.json = {};
                             item.binary = {
                                 decrypted: {
@@ -640,19 +660,28 @@ export class PgpNode implements INodeType {
                             }
                         } else {
                             if (embeddedSignature) {
-                                const base64Data = item.binary[binaryPropertyName].data;
-                                const decodedString = atob(base64Data);
-                                const isArmoredFormat = decodedString.includes('-----BEGIN PGP');
+                                // Get binary data buffer (handles both Base64 and S3 storage)
+                                const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                                    this,
+                                    itemIndex,
+                                    binaryPropertyName,
+                                );
+
+                                // Check if it's ASCII-armored format
+                                const firstBytes = Array.from(binaryData.slice(0, 20))
+                                    .map(b => String.fromCharCode(b))
+                                    .join('');
+                                const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
 
                                 let decryptedMessageResult: { data: Uint8Array; verified: boolean } | false;
                                 if (isArmoredFormat) {
+                                    const armoredString = new TextDecoder().decode(binaryData);
                                     decryptedMessageResult = await decryptBinaryWithVerification(
-                                        decodedString,
+                                        armoredString,
                                         priKey,
                                         pubKey,
                                     );
                                 } else {
-                                    const binaryData = BinaryUtils.base64ToUint8Array(base64Data);
                                     decryptedMessageResult = await decryptBinaryWithVerification(
                                         binaryData,
                                         priKey,
@@ -680,7 +709,7 @@ export class PgpNode implements INodeType {
                                     }
                                 }
 
-                                const encryptedFileName = item.binary[binaryPropertyName]?.fileName;
+                                const encryptedFileName = meta.fileName;
                                 item.json = {
                                     verified: decryptedMessageResult.verified,
                                 };
@@ -694,15 +723,24 @@ export class PgpNode implements INodeType {
                                     },
                                 };
                             } else {
-                                const base64Data = item.binary[binaryPropertyName].data;
-                                const decodedString = atob(base64Data);
-                                const isArmoredFormat = decodedString.includes('-----BEGIN PGP');
+                                // Get binary data buffer (handles both Base64 and S3 storage)
+                                const { data: binaryData, meta } = await NodeUtils.getBinaryData.call(
+                                    this,
+                                    itemIndex,
+                                    binaryPropertyName,
+                                );
+
+                                // Check if it's ASCII-armored format
+                                const firstBytes = Array.from(binaryData.slice(0, 20))
+                                    .map(b => String.fromCharCode(b))
+                                    .join('');
+                                const isArmoredFormat = firstBytes.includes('-----BEGIN PGP');
 
                                 let decryptedMessage: Uint8Array | false;
                                 if (isArmoredFormat) {
-                                    decryptedMessage = await decryptBinary(decodedString, priKey);
+                                    const armoredString = new TextDecoder().decode(binaryData);
+                                    decryptedMessage = await decryptBinary(armoredString, priKey);
                                 } else {
-                                    const binaryData = BinaryUtils.base64ToUint8Array(base64Data);
                                     decryptedMessage = await decryptBinary(binaryData, priKey);
                                 }
 
@@ -729,8 +767,11 @@ export class PgpNode implements INodeType {
                                     'binaryPropertyNameSignature',
                                     itemIndex,
                                 ) as string;
-                                const signatureData = atob(
-                                    item.binary[binaryPropertyNameSignature].data,
+                                // Get signature binary data buffer (handles both Base64 and S3 storage)
+                                const signatureData = await NodeUtils.getSignatureData.call(
+                                    this,
+                                    itemIndex,
+                                    binaryPropertyNameSignature,
                                 );
 
                                 const isVerified = await verifyBinary(
@@ -739,7 +780,7 @@ export class PgpNode implements INodeType {
                                     pubKey,
                                 );
 
-                                const encryptedFileName = item.binary[binaryPropertyName]?.fileName;
+                                const encryptedFileName = meta.fileName;
                                 item.json = {
                                     verified: isVerified,
                                 };
@@ -761,7 +802,12 @@ export class PgpNode implements INodeType {
                                 signature: await signText(message, priKey),
                             };
                         } else {
-                            const binaryDataSign = BinaryUtils.base64ToUint8Array(item.binary[binaryPropertyName].data);
+                            // Get binary data buffer (handles both Base64 and S3 storage)
+                            const { data: binaryDataSign, meta } = await NodeUtils.getBinaryData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyName,
+                            );
                             const signature = await signBinary(binaryDataSign, priKey);
 
                             item.json = {};
@@ -770,7 +816,7 @@ export class PgpNode implements INodeType {
                                     data: btoa(signature as string),
                                     mimeType: 'application/pgp-signature',
                                     fileExtension: 'sig',
-                                    fileName: item.binary[binaryPropertyName].fileName + '.sig',
+                                    fileName: (meta.fileName || 'signature') + '.sig',
                                 },
                             };
                         }
@@ -807,9 +853,17 @@ export class PgpNode implements INodeType {
                                 'binaryPropertyNameSignature',
                                 itemIndex,
                             ) as string;
-                            const signatureData = atob(item.binary[binaryPropertyNameSignature].data);
-                            const binaryData = BinaryUtils.base64ToUint8Array(
-                                item.binary[binaryPropertyName].data,
+                            // Get signature binary data buffer (handles both Base64 and S3 storage)
+                            const signatureData = await NodeUtils.getSignatureData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyNameSignature,
+                            );
+                            // Get binary data buffer (handles both Base64 and S3 storage)
+                            const { data: binaryData } = await NodeUtils.getBinaryData.call(
+                                this,
+                                itemIndex,
+                                binaryPropertyName,
                             );
                             const isVerified = await verifyBinary(binaryData, signatureData, pubKey);
 
