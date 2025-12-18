@@ -467,18 +467,19 @@ export class PgpNode implements INodeType {
                                 itemIndex,
                                 binaryPropertyName,
                             );
+                            let dataToEncrypt = binaryDataArray;
                             const originalFileName = options.filename || 'encrypted';
                             const isAlreadyCompressed =
                                 originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip');
                             if (compressionAlgorithm !== 'uncompressed' && !isAlreadyCompressed) {
                                 // @ts-expect-error - Type compatibility issue with ArrayBufferLike vs ArrayBuffer
-                                binaryDataArray = DataCompressor.compress(
+                                dataToEncrypt = DataCompressor.compress(
                                     binaryDataArray,
                                     compressionAlgorithm,
                                     originalFileName,
                                 );
                             }
-                            const encryptedMessage = await encryptBinary(binaryDataArray, pubKey, outputFormat);
+                            const encryptedMessage = await encryptBinary(dataToEncrypt, pubKey, outputFormat);
 
                             item.binary = {
                                 message: {
