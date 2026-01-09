@@ -1,14 +1,17 @@
 import * as openpgp from 'openpgp';
 import { Key, PrivateKey } from 'openpgp';
 
-function getCompressionAlgorithm(compressionAlgorithm) {
-	let openpgpCompressionAlgorithm = {
-		'uncompressed': openpgp.enums.compression.uncompressed,
-		'zip': openpgp.enums.compression.zip,
-		'zlib': openpgp.enums.compression.zlib
-	}?.[compressionAlgorithm];
-	if (!openpgpCompressionAlgorithm) { throw new Error('Unsupported algorithm'); }
-	return openpgpCompressionAlgorithm;
+function getCompressionAlgorithm(compressionAlgorithm: string) {
+	switch (compressionAlgorithm) {
+		case 'zlib':
+			return openpgp.enums.compression.zlib;
+		case 'zip':
+			return openpgp.enums.compression.zip;
+		case 'uncompressed':
+			return openpgp.enums.compression.uncompressed;
+		default:
+			throw new Error('Unsupported algorithm');
+	}
 }
 
 export async function encryptText(message: string, publicKey: Key, outputFormat: 'armored' | 'binary' = 'armored', compressionAlgorithm: string = 'uncompressed'): Promise<string | Uint8Array> {
