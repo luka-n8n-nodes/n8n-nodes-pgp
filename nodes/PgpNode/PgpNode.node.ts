@@ -82,25 +82,6 @@ function cleanArmoredKey(key: string): string {
 }
 
 /**
- * Generates encrypted filename based on original filename and compression algorithm
- * Format: original.zip.pgp (if compressed) or original.pgp (if uncompressed)
- * If original filename already has compression extension (.gz or .zip), don't add it again
- */
-function getEncryptedFileName(originalFileName: string, compressionAlgorithm: string): string {
-    const hasGzExt = originalFileName.endsWith('.gz');
-    const hasZipExt = originalFileName.endsWith('.zip');
-    const isAlreadyCompressed = hasGzExt || hasZipExt;
-    if (compressionAlgorithm === 'uncompressed') {
-        return `${originalFileName}.pgp`;
-    }
-    if (isAlreadyCompressed) {
-        return `${originalFileName}.pgp`;
-    }
-    const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
-    return `${originalFileName}${compressionExt}.pgp`;
-}
-
-/**
  * Removes encryption extension from filename
  * If data has been decompressed, also removes compression extension
  * Handles: .pgp, .gpg, .zip.pgp, .gz.pgp, .zip.gpg, .gz.gpg
@@ -466,7 +447,7 @@ export class PgpNode implements INodeType {
                                 message: {
                                     data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                     mimeType: 'application/pgp-encrypted',
-                                    fileName: getEncryptedFileName(originalFileName, compressionAlgorithm),
+                                    fileName: `${originalFileName}.pgp`,
                                 },
                             };
                         }
@@ -503,7 +484,7 @@ export class PgpNode implements INodeType {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                         mimeType: 'application/pgp-encrypted',
-                                        fileName: getEncryptedFileName(originalFileName, compressionAlgorithm),
+                                        fileName: `${originalFileName}.pgp`,
                                     },
                                 };
                             } else {
@@ -519,7 +500,7 @@ export class PgpNode implements INodeType {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                         mimeType: 'application/pgp-encrypted',
-                                        fileName: getEncryptedFileName(originalFileName, compressionAlgorithm),
+                                        fileName: `${originalFileName}.pgp`,
                                     },
                                     signature: {
                                         data: btoa(signature as string),
