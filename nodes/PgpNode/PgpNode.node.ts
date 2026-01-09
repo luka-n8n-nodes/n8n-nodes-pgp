@@ -453,12 +453,12 @@ export class PgpNode implements INodeType {
                             };
                         } else {
                             // Get binary data buffer (handles both Base64 and S3 storage)
-                            const { data: binaryDataArray, options: object } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryDataArray, options: options } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
                             );
-													  const originalFileName = options.filename || 'encrypted';
+							const originalFileName = options.filename || 'encrypted';
                             let dataToEncrypt = binaryDataArray;
                             const encryptedMessage = await encryptBinary(dataToEncrypt, pubKey, outputFormat, compressionAlgorithm);
 
@@ -484,7 +484,7 @@ export class PgpNode implements INodeType {
                                 };
                             }
                         } else {
-                            const { data: binaryDataEncryptAndSign, options: object } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryDataEncryptAndSign, options: options } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
@@ -545,7 +545,7 @@ export class PgpNode implements INodeType {
                             const {
                                 data: binaryData,
                                 value: buffer,
-                                options: object,
+                                options: options,
                             } = await NodeUtils.getBinaryData.call(this, itemIndex, binaryPropertyName);
 
                             // Detect format and prepare message for decryption
@@ -645,7 +645,7 @@ export class PgpNode implements INodeType {
                                 const {
                                     data: binaryData,
                                     value: buffer,
-                                    options: object,
+                                    options: options,
                                 } = await NodeUtils.getBinaryData.call(this, itemIndex, binaryPropertyName);
 
                                 let messageForDecryption: string | Uint8Array;
@@ -705,7 +705,7 @@ export class PgpNode implements INodeType {
                                 const {
                                     data: binaryData,
                                     value: buffer,
-                                    options: object,
+                                    options: options,
                                 } = await NodeUtils.getBinaryData.call(this, itemIndex, binaryPropertyName);
 
                                 let messageForDecryption: string | Uint8Array;
@@ -777,7 +777,7 @@ export class PgpNode implements INodeType {
                                 signature: await signText(message, priKey),
                             };
                         } else {
-                            const { data: binaryDataSign, options: object } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryDataSign, options: options } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
@@ -845,7 +845,7 @@ export class PgpNode implements INodeType {
                         }
                         break;
                 }
-            } catch (error) {
+            } catch (error: any) {
                 if (this.continueOnFail()) {
                     items.push({
                         json: this.getInputData(itemIndex)[0].json,
