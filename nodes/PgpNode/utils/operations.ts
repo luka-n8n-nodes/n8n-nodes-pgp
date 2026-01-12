@@ -31,7 +31,7 @@ export async function encryptData(
 			throw new Error('If applying signature during encryption, private key is required.');
 		}
 		let newFileName = `${originalFileName}.pgp`;
-		const precompressData = applyPrecompression && (originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip')) && compressionAlgorithm !== 'uncompressed';
+		const precompressData = applyPrecompression && !(originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip')) && compressionAlgorithm !== 'uncompressed';
 		// If precompression = disabled, apply compression parameter during openpgp function call
 		const compressInEncryption = !applyPrecompression;
 		// If needed, compress data
