@@ -16,9 +16,9 @@ function getCompressionAlgorithm(compressionAlgorithm: string) {
 }
 
 export async function encryptData(
-	message: string,
+	message: string | Uint8Array,
 	publicKey: Key,
-	inputFormat: 'text' | 'binary' = 'text',
+	inputFormat: string = 'text',
 	outputFormat: 'armored' | 'binary' = 'armored',
 	compressionAlgorithm: string = 'uncompressed',
 	applyPrecompression: boolean = true,
@@ -26,7 +26,7 @@ export async function encryptData(
 	applySignature: boolean = false,
 	privateKey: Key | null = null,
 
-): Promise<object> {
+) {
 		if (applySignature && !privateKey) {
 			throw new Error('If applying signature during encryption, private key is required.');
 		}
@@ -37,19 +37,23 @@ export async function encryptData(
 		// If needed, compress data
     if (precompressData) {
 			message = DataCompressor.compress(
-					message,
+					message as Uint8Array,
 					compressionAlgorithm,
 					originalFileName,
 			);
 			const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
 			newFileName = `${originalFileName}${compressionExt}.pgp`
 		}
-	  // @ts-ignore - these dictionaries will evalue to one of the createMessage + encrypt parameter options
-		const encrypted = await openpgp.encrypt({
-				message: await openpgp.createMessage({ [inputFormat]: message }),
+
+        let pgpMessage = (inputFormat === 'text')
+            ? await openpgp.createMessage({text: message})
+            : await openpgp.createMessage({binary: message});
+        const encrypted = await openpgp.encrypt({
+				message: pgpMessage,
 				encryptionKeys: publicKey,
+                // @ts-ignore - output format can be 'binary' or 'armored', which will evaluate to one of the valid options here.
 				format: outputFormat,
-				...(compressInEncryption ? ({config: { preferredCompressionAlgorithm: getCompressionAlgorithm(compressionAlgorithm) }}) : ({})),
+                ...(compressInEncryption ? ({config: { preferredCompressionAlgorithm: getCompressionAlgorithm(compressionAlgorithm) }}) : ({})),
 				...(applySignature ? ({signingKeys: privateKey}) : ({})),
 		});
 		return {
