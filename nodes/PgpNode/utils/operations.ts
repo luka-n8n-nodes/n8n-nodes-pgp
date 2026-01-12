@@ -26,7 +26,7 @@ export async function encryptData(
 	applySignature: boolean = false,
 	privateKey: Key | null = null,
 
-): Promise<string | Uint8Array> {
+): Promise<object> {
 		if (applySignature && !privateKey) {
 			throw new Error('If applying signature during encryption, private key is required.');
 		}
