@@ -19,6 +19,7 @@ import {
     decryptBinaryWithVerification,
 } from './utils/operations';
 import { BinaryUtils } from './utils/BinaryUtils';
+import { DataCompressor } from './utils/DataCompressor';
 import NodeUtils from '../help/utils/NodeUtils';
 
 /**
@@ -582,13 +583,29 @@ export class PgpNode implements INodeType {
                                 );
                             }
 
+                            let isDecompressed = false;
+                            if (compressionAlgorithm !== 'uncompressed') {
+                                try {
+                                    decryptedMessage = DataCompressor.uncompress(
+                                        decryptedMessage as Uint8Array,
+                                        compressionAlgorithm,
+                                    );
+                                    isDecompressed = true;
+                                } catch {
+                                    throw new NodeOperationError(
+                                        this.getNode(),
+                                        'Message could not be uncompressed. Please check your compression algorithm.',
+                                    );
+                                }
+                            }                            
+
                             const encryptedFileName = options.filename;
                             item.binary = {
                                 decrypted: {
                                     data: BinaryUtils.uint8ArrayToBase64(decryptedMessage as Uint8Array),
                                     mimeType: 'application/octet-stream',
                                     fileName: encryptedFileName
-                                        ? getDecryptedFileName(encryptedFileName)
+                                        ? getDecryptedFileName(encryptedFileName, isDecompressed)
                                         : undefined,
                                 },
                             };
@@ -685,6 +702,22 @@ export class PgpNode implements INodeType {
                                     );
                                 }
 
+                                let isDecompressed = false;
+                                if (compressionAlgorithm !== 'uncompressed') {
+                                    try {
+                                        decryptedMessageResult.data = DataCompressor.uncompress(
+                                            decryptedMessageResult.data,
+                                            compressionAlgorithm,
+                                        );
+                                        isDecompressed = true;
+                                    } catch {
+                                        throw new NodeOperationError(
+                                            this.getNode(),
+                                            'Message could not be uncompressed. Please check your compression algorithm.',
+                                        );
+                                    }
+                                }
+
                                 const encryptedFileName = options.filename;
                                 item.json = {
                                     verified: decryptedMessageResult.verified,
@@ -694,7 +727,7 @@ export class PgpNode implements INodeType {
                                         data: BinaryUtils.uint8ArrayToBase64(decryptedMessageResult.data),
                                         mimeType: 'application/octet-stream',
                                         fileName: encryptedFileName
-                                            ? getDecryptedFileName(encryptedFileName)
+                                            ? getDecryptedFileName(encryptedFileName, isDecompressed)
                                             : undefined,
                                     },
                                 };
@@ -740,6 +773,23 @@ export class PgpNode implements INodeType {
                                         `Decryption returned false. Format: ${formatType}, Data size: ${binaryData.length} bytes`,
                                     );
                                 }
+                               
+                                let isDecompressed = false;
+                                if (compressionAlgorithm !== 'uncompressed') {
+                                    try {
+                                        decryptedMessage = DataCompressor.uncompress(
+                                            decryptedMessage as Uint8Array,
+                                            compressionAlgorithm,
+                                        );
+                                        isDecompressed = true;
+                                    } catch {
+                                        throw new NodeOperationError(
+                                            this.getNode(),
+                                            'Message could not be uncompressed. Please check your compression algorithm.',
+                                        );
+                                    }
+                                }
+
                                 const binaryPropertyNameSignature = this.getNodeParameter(
                                     'binaryPropertyNameSignature',
                                     itemIndex,
@@ -761,7 +811,7 @@ export class PgpNode implements INodeType {
                                         data: BinaryUtils.uint8ArrayToBase64(decryptedMessage as Uint8Array),
                                         mimeType: 'application/octet-stream',
                                         fileName: encryptedFileName
-                                            ? getDecryptedFileName(encryptedFileName)
+                                            ? getDecryptedFileName(encryptedFileName, isDecompressed)
                                             : undefined,
                                     },
                                 };
