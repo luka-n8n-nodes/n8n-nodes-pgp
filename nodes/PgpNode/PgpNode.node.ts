@@ -406,7 +406,7 @@ export class PgpNode implements INodeType {
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
             try {
                 const operation = this.getNodeParameter('operation', itemIndex) as string;
-                const inputType = this.getNodeParameter('inputType', itemIndex) as string;
+                const inputType =  this.getNodeParameter('inputType', itemIndex) as string;
 							  const applyPrecompression = this.getNodeParameter('applyPrecompression', itemIndex) as boolean;
                 let compressionAlgorithm = 'uncompressed';
                 let embedSignature = false;
@@ -479,8 +479,8 @@ export class PgpNode implements INodeType {
                             if (embedSignature) {
                                 item.json = {
                                     encrypted: (await encryptData(message, pubKey, inputType, outputFormat, 
-																																 compressionAlgorithm, applyPrecompression, originalFileName='encrypted',
-																																 applySignature=true, privateKey=priKey)).data,
+																																 compressionAlgorithm, applyPrecompression, 'encrypted',
+																																 true, priKey)).data,
                                 };
                             } else {
                                 item.json = {
@@ -500,7 +500,7 @@ export class PgpNode implements INodeType {
                             if (embedSignature) {
 																const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
 																																					 															compressionAlgorithm, applyPrecompression, originalFileName,
-																																					 															applySignature=true, privateKey=priKey);
+																																					 															true, priKey);
                                 item.binary = {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
