@@ -8,16 +8,13 @@ import {
 import * as openpgp from 'openpgp';
 import { PrivateKey, Key } from 'openpgp';
 import {
-    encryptText,
-    encryptBinary,
+    encryptData,
     signText,
     signBinary,
     decryptText,
     decryptBinary,
     verifyText,
     verifyBinary,
-    encryptTextWithSignature,
-    encryptBinaryWithSignature,
     decryptTextWithVerification,
     decryptBinaryWithVerification,
 } from './utils/operations';
@@ -79,22 +76,6 @@ function cleanArmoredKey(key: string): string {
     const normalizedData = dataPart.trim().replace(/\n{3,}/g, '\n\n');
 
     return `${header}\n\n${normalizedData}\n${footer}\n`;
-}
-
-/**
- * Generates encrypted filename based on original filename and compression algorithm
- * Format: original.zip.pgp (if compressed) or original.pgp (if uncompressed)
- * If original filename already has compression extension (.gz or .zip), don't add it again
- */
-function getEncryptedFileName(originalFileName: string, compressionAlgorithm: string, applyCompressionSingleStep: boolean): string {
-    const hasGzExt = originalFileName.endsWith('.gz');
-    const hasZipExt = originalFileName.endsWith('.zip');
-    const isAlreadyCompressed = hasGzExt || hasZipExt;
-    if (compressionAlgorithm === 'uncompressed' || applyCompressionSingleStep || isAlreadyCompressed) {
-        return `${originalFileName}.pgp`;
-    }
-    const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
-    return `${originalFileName}${compressionExt}.pgp`;
 }
 
 /**
@@ -497,7 +478,7 @@ export class PgpNode implements INodeType {
                             if (embedSignature) {
                                 item.json = {
                                     encrypted: await encryptData(message, pubKey, inputType, outputFormat, 
-																																 compressionAlgorithm, applyPrecompression, originalFileName‎='encrypted',
+																																 compressionAlgorithm, applyPrecompression, originalFileName='encrypted',
 																																 applySignature=true, privateKey=priKey).data,
                                 };
                             } else {
@@ -508,7 +489,7 @@ export class PgpNode implements INodeType {
                                 };
                             }
                         } else {
-                            const { data: binaryDataEncryptAndSignArray‎, options: options } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryDataEncryptAndSignArray, options: options } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
