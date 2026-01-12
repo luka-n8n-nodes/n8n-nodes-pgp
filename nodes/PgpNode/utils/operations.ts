@@ -26,6 +26,9 @@ export async function encryptData(
 	applySignature: boolean = false,
 	privateKey: Key | null = null,
 ): Promise<string | Uint8Array> {
+		if (applySignature && !privateKey) {
+			throw new Error('If applying signature during encryption, private key is required.');
+		}
 		let newFileName = `${originalFileName}.pgp`;
 		const precompressData = applyPrecompression && (originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip')) && compressionAlgorithm !== 'uncompressed';
 		// If precompression = disabled, apply compression parameter during openpgp function call
@@ -47,8 +50,10 @@ export async function encryptData(
 				...(compressInEncryption ? ({config: { preferredCompressionAlgorithm: getCompressionAlgorithm(compressionAlgorithm) }}) : ({})),
 				...(applySignature ? ({signingKeys: privateKey}) : ({})),
 		});
-		if (outputFormat === 'binary') { return encrypted as Uint8Array; } 
-		return encrypted as string;
+		return {
+			data: (outputFormat === 'binary') ? (encrypted as Uint8Array) : (encrypted as string),
+			filename: newFileName
+		}
 }
 
 export async function decryptText(message: string, privateKey: PrivateKey): Promise<string | false> {
