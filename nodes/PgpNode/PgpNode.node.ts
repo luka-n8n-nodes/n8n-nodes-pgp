@@ -281,7 +281,7 @@ export class PgpNode implements INodeType {
                 name: 'applyPrecompression',
                 type: 'boolean',
                 default: true,
-                description: 'If true, compression algorithm is applied to message before PGP encryption, creating a .gz.pgp or .zip.pgp file. If false, compression algorithm will be applied during PGP encryption call as a single step.',
+                description: 'If true, compression algorithm is applied before PGP encryption, creating a .gz.pgp or .zip.pgp file. If false, compression algorithm is applied during encryption as a single step.',
                 displayOptions: {
                     show: {
                         operation: ['encrypt', 'encrypt-and-sign'],
@@ -407,7 +407,7 @@ export class PgpNode implements INodeType {
             try {
                 const operation = this.getNodeParameter('operation', itemIndex) as string;
                 const inputType =  this.getNodeParameter('inputType', itemIndex) as string;
-							  const applyPrecompression = this.getNodeParameter('applyPrecompression', itemIndex) as boolean;
+							  let applyPrecompression = true;
                 let compressionAlgorithm = 'uncompressed';
                 let embedSignature = false;
                 let embeddedSignature = false;
@@ -422,6 +422,9 @@ export class PgpNode implements INodeType {
                     binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex) as string;
                     if (['encrypt', 'encrypt-and-sign'].includes(operation)) {
                         compressionAlgorithm = this.getNodeParameter('compressionAlgorithm', itemIndex) as string;
+                        if (['zip', 'zlib'].includes(compressionAlgorithm)) {
+                            applyPrecompression = this.getNodeParameter('applyPrecompression', itemIndex) as boolean;
+                        }
                     } else if (['decrypt', 'decrypt-and-verify'].includes(operation)) {
                         compressionAlgorithm = this.getNodeParameter('decompressionAlgorithm', itemIndex) as string;
                     }
