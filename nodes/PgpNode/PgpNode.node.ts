@@ -502,7 +502,7 @@ export class PgpNode implements INodeType {
 																																					 															applySignature=true, privateKey=priKey);
                                 item.binary = {
                                     message: {
-                                        data: encryptedMessage,
+                                        data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                         mimeType: 'application/pgp-encrypted',
                                         fileName: filename,
                                     },
