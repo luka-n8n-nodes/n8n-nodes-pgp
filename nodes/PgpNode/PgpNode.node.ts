@@ -22,6 +22,7 @@ import {
     decryptBinaryWithVerification,
 } from './utils/operations';
 import { BinaryUtils } from './utils/BinaryUtils';
+import { DataCompressor } from './utils/DataCompressor';
 import NodeUtils from '../help/utils/NodeUtils';
 
 /**
@@ -82,13 +83,37 @@ function cleanArmoredKey(key: string): string {
 }
 
 /**
+ * Generates encrypted filename based on original filename and compression algorithm
+ * Format: original.zip.pgp (if compressed) or original.pgp (if uncompressed)
+ * If original filename already has compression extension (.gz or .zip), don't add it again
+ */
+function getEncryptedFileName(originalFileName: string, compressionAlgorithm: string, applyCompressionSingleStep: boolean): string {
+    const hasGzExt = originalFileName.endsWith('.gz');
+    const hasZipExt = originalFileName.endsWith('.zip');
+    const isAlreadyCompressed = hasGzExt || hasZipExt;
+    if (compressionAlgorithm === 'uncompressed' || applyCompressionSingleStep || isAlreadyCompressed) {
+        return `${originalFileName}.pgp`;
+    }
+    const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
+    return `${originalFileName}${compressionExt}.pgp`;
+}
+
+/**
  * Removes encryption extension from filename
  * If data has been decompressed, also removes compression extension
  * Handles: .pgp, .gpg, .zip.pgp, .gz.pgp, .zip.gpg, .gz.gpg
  * @param encryptedFileName - The encrypted filename
+ * @param isDecompressed - Whether the decrypted data has been decompressed
  */
-function getDecryptedFileName(encryptedFileName: string): string {
+function getDecryptedFileName(encryptedFileName: string, isDecompressed: boolean = false): string {
     let fileName = encryptedFileName.replace(/\.(pgp|gpg)$/, '');
+    if (isDecompressed) {
+        if (fileName.endsWith('.zip')) {
+            fileName = fileName.replace(/\.zip$/, '');
+        } else if (fileName.endsWith('.gz')) {
+            fileName = fileName.replace(/\.gz$/, '');
+        }
+    }
     return fileName;
 }
 
@@ -270,6 +295,20 @@ export class PgpNode implements INodeType {
                     },
                 },
             },
+					  {
+                displayName: 'Apply Precompression?',
+                name: 'applyPrecompression',
+                type: 'boolean',
+                default: true,
+                description: 'If true, compression algorithm is applied to message before PGP encryption, creating a .gz.pgp or .zip.pgp file. If false, compression algorithm will be applied during PGP encryption call as a single step.',
+                displayOptions: {
+                    show: {
+                        operation: ['encrypt', 'encrypt-and-sign'],
+                        inputType: ['binary'],
+												compressionAlgorithm: ['zip', 'zlib'],
+                    },
+                },
+            },
             {
                 displayName: 'Decompression Algorithm',
                 name: 'decompressionAlgorithm',
@@ -387,6 +426,7 @@ export class PgpNode implements INodeType {
             try {
                 const operation = this.getNodeParameter('operation', itemIndex) as string;
                 const inputType = this.getNodeParameter('inputType', itemIndex) as string;
+							  const applyPrecompression = this.getNodeParameter('applyPrecompression', itemIndex) as boolean;
                 let compressionAlgorithm = 'uncompressed';
                 let embedSignature = false;
                 let embeddedSignature = false;
@@ -430,7 +470,8 @@ export class PgpNode implements INodeType {
                     case 'encrypt':
                         if (inputType === 'text') {
                             item.json = {
-                                encrypted: await encryptText(message, pubKey, outputFormat, compressionAlgorithm),
+                                encrypted: await encryptData(message, pubKey, inputType, outputFormat, 
+																														 compressionAlgorithm, applyPrecompression).data,
                             };
                         } else {
                             // Get binary data buffer (handles both Base64 and S3 storage)
@@ -439,15 +480,15 @@ export class PgpNode implements INodeType {
                                 itemIndex,
                                 binaryPropertyName,
                             );
-							const originalFileName = options.filename || 'encrypted';
-                            let dataToEncrypt = binaryDataArray;
-                            const encryptedMessage = await encryptBinary(dataToEncrypt, pubKey, outputFormat, compressionAlgorithm);
+														const originalFileName = options.filename || 'encrypted';
+														const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataArray, pubKey, inputType, outputFormat, 
+																																 compressionAlgorithm, applyPrecompression, originalFileName);
 
                             item.binary = {
                                 message: {
                                     data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                     mimeType: 'application/pgp-encrypted',
-                                    fileName: `${originalFileName}.pgp`,
+                                    fileName: filename,
                                 },
                             };
                         }
@@ -456,51 +497,46 @@ export class PgpNode implements INodeType {
                         if (inputType === 'text') {
                             if (embedSignature) {
                                 item.json = {
-                                    encrypted: await encryptTextWithSignature(message, pubKey, priKey, outputFormat, compressionAlgorithm),
+                                    encrypted: await encryptData(message, pubKey, inputType, outputFormat, 
+																																 compressionAlgorithm, applyPrecompression, originalFileName‎='encrypted',
+																																 applySignature=true, privateKey=priKey).data,
                                 };
                             } else {
                                 item.json = {
-                                    encrypted: await encryptText(message, pubKey, outputFormat, compressionAlgorithm),
+                                    encrypted: await encryptData(message, pubKey, inputType, outputFormat,
+																																 compressionAlgorithm, applyPrecompression).data,
                                     signature: await signText(message, priKey),
                                 };
                             }
                         } else {
-                            const { data: binaryDataEncryptAndSign, options: options } = await NodeUtils.getBinaryData.call(
+                            const { data: binaryDataEncryptAndSignArray‎, options: options } = await NodeUtils.getBinaryData.call(
                                 this,
                                 itemIndex,
                                 binaryPropertyName,
                             );
-                            let binaryDataEncryptAndSignArray = binaryDataEncryptAndSign;
                             const originalFileName = options.filename || 'encrypted';
+													
                             if (embedSignature) {
-                                const encryptedMessage = await encryptBinaryWithSignature(
-                                    binaryDataEncryptAndSignArray,
-                                    pubKey,
-                                    priKey,
-                                    outputFormat,
-																		compressionAlgorithm
-                                );
+																const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
+																																					 															compressionAlgorithm, applyPrecompression, originalFileName,
+																																					 															applySignature=true, privateKey=priKey);
                                 item.binary = {
                                     message: {
-                                        data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
+                                        data: encryptedMessage,
                                         mimeType: 'application/pgp-encrypted',
-                                        fileName: `${originalFileName}.pgp`,
+                                        fileName: filename,
                                     },
                                 };
                             } else {
                                 const signature = await signBinary(binaryDataEncryptAndSignArray, priKey);
-                                const encryptedMessage = await encryptBinary(
-                                    binaryDataEncryptAndSignArray,
-                                    pubKey,
-                                    outputFormat,
-																		compressionAlgorithm
-                                );
+                                const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
+																																																				 compressionAlgorithm, applyPrecompression, originalFileName);
 
                                 item.binary = {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
                                         mimeType: 'application/pgp-encrypted',
-                                        fileName: `${originalFileName}.pgp`,
+                                        fileName: filename,
                                     },
                                     signature: {
                                         data: btoa(signature as string),
