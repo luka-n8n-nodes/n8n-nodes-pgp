@@ -22,7 +22,7 @@ export async function encryptData(
 	inputFormat: 'text' | 'binary' = 'text',
 	outputFormat: 'armored' | 'binary' = 'armored',
 	compressionAlgorithm: string = 'uncompressed',
-	applyPrecompression: boolean = false,
+	applyPrecompression: boolean = true,
 	applySignature: boolean = false,
 	privateKey: Key | null = null,
 ): Promise<string | Uint8Array> {
