@@ -406,7 +406,7 @@ export class PgpNode implements INodeType {
         for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
             try {
                 const operation = this.getNodeParameter('operation', itemIndex) as string;
-                const inputType =  this.getNodeParameter('inputType', itemIndex) as string;
+                const inputType = this.getNodeParameter('inputType', itemIndex) as string;
 							  let applyPrecompression = true;
                 let compressionAlgorithm = 'uncompressed';
                 let embedSignature = false;
@@ -600,7 +600,7 @@ export class PgpNode implements INodeType {
                                         'Message could not be uncompressed. Please check your compression algorithm.',
                                     );
                                 }
-                            }                            
+                            }
 
                             const encryptedFileName = options.filename;
                             item.binary = {
@@ -776,7 +776,7 @@ export class PgpNode implements INodeType {
                                         `Decryption returned false. Format: ${formatType}, Data size: ${binaryData.length} bytes`,
                                     );
                                 }
-                               
+
                                 let isDecompressed = false;
                                 if (compressionAlgorithm !== 'uncompressed') {
                                     try {
