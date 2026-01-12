@@ -22,7 +22,6 @@ import {
     decryptBinaryWithVerification,
 } from './utils/operations';
 import { BinaryUtils } from './utils/BinaryUtils';
-import { DataCompressor } from './utils/DataCompressor';
 import NodeUtils from '../help/utils/NodeUtils';
 
 /**
