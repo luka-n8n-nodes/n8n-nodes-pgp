@@ -1,5 +1,5 @@
 {
-  "name": "@george-selly/n8n-nodes-pgp",
+  "name": "@luka-cat-mimi/n8n-nodes-pgp",
   "version": "1.3.10",
   "description": "n8n-nodes-pgp enables seamless integration of PGP encryption functionalities into n8n workflows. Create keys, encrypt, decrypt, sign, and verify messages effortlessly. Perfect for secure data handling in automated workflows.",
   "keywords": [
