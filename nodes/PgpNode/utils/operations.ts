@@ -44,6 +44,7 @@ export async function encryptData(
 			const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
 			newFileName = `${originalFileName}${compressionExt}.pgp`
 		}
+	  // @ts-ignore - these dictionaries will evalue to one of the createMessage + encrypt parameter options
 		const encrypted = await openpgp.encrypt({
 				message: await openpgp.createMessage({ [inputFormat]: message }),
 				encryptionKeys: publicKey,
