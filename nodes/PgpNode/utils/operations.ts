@@ -18,13 +18,14 @@ function getCompressionAlgorithm(compressionAlgorithm: string) {
 export async function encryptData(
 	message: string,
 	publicKey: Key,
-	originalFileName: string = 'encrypted',
 	inputFormat: 'text' | 'binary' = 'text',
 	outputFormat: 'armored' | 'binary' = 'armored',
 	compressionAlgorithm: string = 'uncompressed',
 	applyPrecompression: boolean = true,
+	originalFileName: string = 'encrypted',
 	applySignature: boolean = false,
 	privateKey: Key | null = null,
+
 ): Promise<string | Uint8Array> {
 		if (applySignature && !privateKey) {
 			throw new Error('If applying signature during encryption, private key is required.');
