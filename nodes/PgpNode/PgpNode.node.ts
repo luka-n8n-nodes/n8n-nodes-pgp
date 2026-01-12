@@ -451,8 +451,8 @@ export class PgpNode implements INodeType {
                     case 'encrypt':
                         if (inputType === 'text') {
                             item.json = {
-                                encrypted: await encryptData(message, pubKey, inputType, outputFormat, 
-																														 compressionAlgorithm, applyPrecompression).data,
+                                encrypted: (await encryptData(message, pubKey, inputType, outputFormat, 
+																														 compressionAlgorithm, applyPrecompression)).data,
                             };
                         } else {
                             // Get binary data buffer (handles both Base64 and S3 storage)
@@ -478,14 +478,14 @@ export class PgpNode implements INodeType {
                         if (inputType === 'text') {
                             if (embedSignature) {
                                 item.json = {
-                                    encrypted: await encryptData(message, pubKey, inputType, outputFormat, 
+                                    encrypted: (await encryptData(message, pubKey, inputType, outputFormat, 
 																																 compressionAlgorithm, applyPrecompression, originalFileName='encrypted',
-																																 applySignature=true, privateKey=priKey).data,
+																																 applySignature=true, privateKey=priKey)).data,
                                 };
                             } else {
                                 item.json = {
-                                    encrypted: await encryptData(message, pubKey, inputType, outputFormat,
-																																 compressionAlgorithm, applyPrecompression).data,
+                                    encrypted: (await encryptData(message, pubKey, inputType, outputFormat,
+																																 compressionAlgorithm, applyPrecompression)).data,
                                     signature: await signText(message, priKey),
                                 };
                             }
