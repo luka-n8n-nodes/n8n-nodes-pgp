@@ -276,17 +276,17 @@ export class PgpNode implements INodeType {
                     },
                 },
             },
-					  {
+            {
                 displayName: 'Apply Precompression?',
                 name: 'applyPrecompression',
                 type: 'boolean',
                 default: true,
-                description: 'If true, compression algorithm is applied before PGP encryption, creating a .gz.pgp or .zip.pgp file. If false, compression algorithm is applied during encryption as a single step.',
+                description: 'Whether to apply compression algorithm before PGP encryption, creating a .gz.pgp or .zip.pgp file. If false, compression algorithm is applied during encryption as a single step.',
                 displayOptions: {
                     show: {
                         operation: ['encrypt', 'encrypt-and-sign'],
                         inputType: ['binary'],
-												compressionAlgorithm: ['zip', 'zlib'],
+                        compressionAlgorithm: ['zip', 'zlib'],
                     },
                 },
             },
@@ -407,7 +407,7 @@ export class PgpNode implements INodeType {
             try {
                 const operation = this.getNodeParameter('operation', itemIndex) as string;
                 const inputType = this.getNodeParameter('inputType', itemIndex) as string;
-							  let applyPrecompression = true;
+                let applyPrecompression = true;
                 let compressionAlgorithm = 'uncompressed';
                 let embedSignature = false;
                 let embeddedSignature = false;
@@ -454,8 +454,8 @@ export class PgpNode implements INodeType {
                     case 'encrypt':
                         if (inputType === 'text') {
                             item.json = {
-                                encrypted: (await encryptData(message, pubKey, inputType, outputFormat, 
-																														 compressionAlgorithm, applyPrecompression)).data,
+                                encrypted: (await encryptData(message, pubKey, inputType, outputFormat,
+                                    compressionAlgorithm, applyPrecompression)).data,
                             };
                         } else {
                             // Get binary data buffer (handles both Base64 and S3 storage)
@@ -464,9 +464,9 @@ export class PgpNode implements INodeType {
                                 itemIndex,
                                 binaryPropertyName,
                             );
-														const originalFileName = options.filename || 'encrypted';
-														const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataArray, pubKey, inputType, outputFormat, 
-																																 compressionAlgorithm, applyPrecompression, originalFileName);
+                            const originalFileName = options.filename || 'encrypted';
+                            const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataArray, pubKey, inputType, outputFormat,
+                                compressionAlgorithm, applyPrecompression, originalFileName);
 
                             item.binary = {
                                 message: {
@@ -481,14 +481,14 @@ export class PgpNode implements INodeType {
                         if (inputType === 'text') {
                             if (embedSignature) {
                                 item.json = {
-                                    encrypted: (await encryptData(message, pubKey, inputType, outputFormat, 
-																																 compressionAlgorithm, applyPrecompression, 'encrypted',
-																																 true, priKey)).data,
+                                    encrypted: (await encryptData(message, pubKey, inputType, outputFormat,
+                                        compressionAlgorithm, applyPrecompression, 'encrypted',
+                                        true, priKey)).data,
                                 };
                             } else {
                                 item.json = {
                                     encrypted: (await encryptData(message, pubKey, inputType, outputFormat,
-																																 compressionAlgorithm, applyPrecompression)).data,
+                                        compressionAlgorithm, applyPrecompression)).data,
                                     signature: await signText(message, priKey),
                                 };
                             }
@@ -499,11 +499,11 @@ export class PgpNode implements INodeType {
                                 binaryPropertyName,
                             );
                             const originalFileName = options.filename || 'encrypted';
-													
+
                             if (embedSignature) {
-																const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
-																																					 															compressionAlgorithm, applyPrecompression, originalFileName,
-																																					 															true, priKey);
+                                const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
+                                    compressionAlgorithm, applyPrecompression, originalFileName,
+                                    true, priKey);
                                 item.binary = {
                                     message: {
                                         data: BinaryUtils.uint8ArrayToBase64(encryptedMessage as Uint8Array),
@@ -514,7 +514,7 @@ export class PgpNode implements INodeType {
                             } else {
                                 const signature = await signBinary(binaryDataEncryptAndSignArray, priKey);
                                 const { data: encryptedMessage, filename: filename } = await encryptData(binaryDataEncryptAndSignArray, pubKey, inputType, outputFormat,
-																																																				 compressionAlgorithm, applyPrecompression, originalFileName);
+                                    compressionAlgorithm, applyPrecompression, originalFileName);
 
                                 item.binary = {
                                     message: {
