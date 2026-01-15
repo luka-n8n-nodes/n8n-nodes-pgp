@@ -1,40 +1,65 @@
 import * as openpgp from 'openpgp';
 import { Key, PrivateKey } from 'openpgp';
+import { DataCompressor } from './DataCompressor';
 
-export async function encryptText(message: string, publicKey: Key, outputFormat: 'armored' | 'binary' = 'armored'): Promise<string | Uint8Array> {
-    if (outputFormat === 'binary') {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ text: message }),
-            encryptionKeys: publicKey,
-            format: 'binary',
-        });
-        return encrypted as Uint8Array;
-    } else {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ text: message }),
-            encryptionKeys: publicKey,
-            format: 'armored',
-        });
-        return encrypted as string;
-    }
+function getCompressionAlgorithm(compressionAlgorithm: string) {
+	switch (compressionAlgorithm) {
+		case 'zlib':
+			return openpgp.enums.compression.zlib;
+		case 'zip':
+			return openpgp.enums.compression.zip;
+		case 'uncompressed':
+			return openpgp.enums.compression.uncompressed;
+		default:
+			throw new Error('Unsupported algorithm');
+	}
 }
 
-export async function encryptBinary(data: Uint8Array, publicKey: Key, outputFormat: 'armored' | 'binary' = 'armored'): Promise<string | Uint8Array> {
-    if (outputFormat === 'binary') {
+export async function encryptData(
+	message: string | Uint8Array,
+	publicKey: Key,
+	inputFormat: string = 'text',
+	outputFormat: 'armored' | 'binary' = 'armored',
+	compressionAlgorithm: string = 'uncompressed',
+	applyPrecompression: boolean = true,
+	originalFileName: string = 'encrypted',
+	applySignature: boolean = false,
+	privateKey: Key | null = null,
+
+) {
+		if (applySignature && !privateKey) {
+			throw new Error('If applying signature during encryption, private key is required.');
+		}
+		let newFileName = `${originalFileName}.pgp`;
+		const precompressData = applyPrecompression && !(originalFileName.endsWith('.gz') || originalFileName.endsWith('.zip')) && compressionAlgorithm !== 'uncompressed';
+		// If precompression = disabled, apply compression parameter during openpgp function call
+		const compressInEncryption = !applyPrecompression;
+		// If needed, compress data
+    if (precompressData) {
+			message = DataCompressor.compress(
+					message as Uint8Array,
+					compressionAlgorithm,
+					originalFileName,
+			);
+			const compressionExt = compressionAlgorithm === 'zip' ? '.zip' : '.gz';
+			newFileName = `${originalFileName}${compressionExt}.pgp`
+		}
+
+        let pgpMessage = (inputFormat === 'text')
+            ? await openpgp.createMessage({text: message})
+            : await openpgp.createMessage({binary: message});
         const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ binary: data }),
-            encryptionKeys: publicKey,
-            format: 'binary',
-        });
-        return encrypted as Uint8Array;
-    } else {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ binary: data }),
-            encryptionKeys: publicKey,
-            format: 'armored',
-        });
-        return encrypted as string;
-    }
+				message: pgpMessage,
+				encryptionKeys: publicKey,
+                // @ts-ignore - output format can be 'binary' or 'armored', which will evaluate to one of the valid options here.
+				format: outputFormat,
+                ...(compressInEncryption ? ({config: { preferredCompressionAlgorithm: getCompressionAlgorithm(compressionAlgorithm) }}) : ({})),
+				...(applySignature ? ({signingKeys: privateKey}) : ({})),
+		});
+		return {
+			data: (outputFormat === 'binary') ? (encrypted as Uint8Array) : (encrypted as string),
+			filename: newFileName
+		}
 }
 
 export async function decryptText(message: string, privateKey: PrivateKey): Promise<string | false> {
@@ -145,56 +170,6 @@ export async function verifyBinary(binaryData: Uint8Array, signature: string, pu
         return true;
     } catch {
         return false;
-    }
-}
-
-export async function encryptTextWithSignature(
-    message: string,
-    publicKey: Key,
-    privateKey: PrivateKey,
-    outputFormat: 'armored' | 'binary' = 'armored',
-): Promise<string | Uint8Array> {
-    if (outputFormat === 'binary') {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ text: message }),
-            encryptionKeys: publicKey,
-            signingKeys: privateKey,
-            format: 'binary',
-        });
-        return encrypted as Uint8Array;
-    } else {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ text: message }),
-            encryptionKeys: publicKey,
-            signingKeys: privateKey,
-            format: 'armored',
-        });
-        return encrypted as string;
-    }
-}
-
-export async function encryptBinaryWithSignature(
-    data: Uint8Array,
-    publicKey: Key,
-    privateKey: PrivateKey,
-    outputFormat: 'armored' | 'binary' = 'armored',
-): Promise<string | Uint8Array> {
-    if (outputFormat === 'binary') {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ binary: data }),
-            encryptionKeys: publicKey,
-            signingKeys: privateKey,
-            format: 'binary',
-        });
-        return encrypted as Uint8Array;
-    } else {
-        const encrypted = await openpgp.encrypt({
-            message: await openpgp.createMessage({ binary: data }),
-            encryptionKeys: publicKey,
-            signingKeys: privateKey,
-            format: 'armored',
-        });
-        return encrypted as string;
     }
 }
 
