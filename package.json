@@ -39,14 +39,16 @@
     "dev": "tsc --watch",
     "format": "prettier nodes credentials tests --write",
     "lint": "eslint nodes credentials package.json",
-    "lintfix": "eslint nodes credentials package.json --fix",
-    "prepublishOnly": "npm run build && npm run lint -- -c .eslintrc.prepublish.js nodes credentials package.json",
+    "prepublishOnly": "n8n-node prerelease",
     "test": "npx --node-options=\"--no-warnings\" jest --verbose",
     "coverage": "npx --node-options=\"--no-warnings\" jest --coverage",
     "test:watch": "npx --node-options=\"--no-warnings\" jest --watch",
     "bump:patch": "./scripts/bump-and-publish.sh patch",
     "bump:minor": "./scripts/bump-and-publish.sh minor",
-    "bump:major": "./scripts/bump-and-publish.sh major"
+    "bump:major": "./scripts/bump-and-publish.sh major",
+    "build:watch": "tsc --watch",
+    "lint:fix": "eslint nodes credentials package.json --fix",
+    "release": "n8n-node release"
   },
   "files": [
     "dist"
@@ -58,9 +60,11 @@
     ],
     "nodes": [
       "dist/nodes/PgpNode/PgpNode.node.js"
-    ]
+    ],
+    "strict": false
   },
   "devDependencies": {
+    "@n8n/node-cli": "*",
     "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.43",
@@ -70,9 +74,10 @@
     "gulp": "^4.0.2",
     "jest": "^29.7.0",
     "n8n-workflow": "^1.83.0",
-    "prettier": "^3.9.6",
+    "prettier": "3.8.3",
+    "release-it": "20.2.0",
     "ts-jest": "^29.4.1",
-    "typescript": "^5.9.3"
+    "typescript": "5.9.3"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
